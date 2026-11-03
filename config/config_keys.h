@@ -62,6 +62,9 @@ static const Key keys[] = {
 	{ MODKEY,                    XKB_KEY_w,           spawn,            {.v = browser} },  /* Super+W: browser */
 	{ MODKEY,                    XKB_KEY_r,           spawn,            {.v = wlaunch} },  /* Super+R: launcher */
 	{ MODKEY|SHIFT,              XKB_KEY_B,           spawn,            {.v = btop} },  /* Super+Shift+B: btop */
+	{ MODKEY,                    XKB_KEY_v,           spawn,            SHCMD("clip-pick") },  /* Super+V: clipboard history (cliphist + bemenu) */
+	{ MODKEY|SHIFT,              XKB_KEY_V,           spawn,            SHCMD("bemoji -t") },  /* Super+Shift+V: emoji picker */
+	{ MODKEY,                    XKB_KEY_m,           spawn,            SHCMD("mic-monitor") },  /* Super+M: hear yourself on/off */
 	{ 0,                         XKB_KEY_F1,          spawn,            SHCMD("python3 ~/.config/hypr/scripts/autoclicker.py start") },  /* F1: autoclicker start */
 	{ 0,                         XKB_KEY_F2,          spawn,            SHCMD("python3 ~/.config/hypr/scripts/autoclicker.py stop") },  /* F2: autoclicker stop */
 
