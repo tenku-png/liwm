@@ -1598,8 +1598,12 @@ createpointer(struct wlr_pointer *pointer)
 			libinput_device_config_tap_set_button_map(device, button_map);
 		}
 
+		/* Touchpads (devices with tap support) use natural_scrolling,
+		 * mice use mouse_natural_scrolling, like Hyprland's touchpad block. */
 		if (libinput_device_config_scroll_has_natural_scroll(device))
-			libinput_device_config_scroll_set_natural_scroll_enabled(device, natural_scrolling);
+			libinput_device_config_scroll_set_natural_scroll_enabled(device,
+				libinput_device_config_tap_get_finger_count(device)
+					? natural_scrolling : mouse_natural_scrolling);
 
 		if (libinput_device_config_dwt_is_available(device))
 			libinput_device_config_dwt_set_enabled(device, disable_while_typing);

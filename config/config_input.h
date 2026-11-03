@@ -21,7 +21,8 @@ static const int repeat_delay = 250;  /* delay in ms before a held key starts re
 static const int tap_to_click = 1;  /* 1 = tapping clicks */
 static const int tap_and_drag = 1;  /* 1 = tap, then touch and move to drag */
 static const int drag_lock = 1;  /* 1 = a drag continues after lifting the finger briefly */
-static const int natural_scrolling = 1;  /* 1 = content follows the finger direction */
+static const int natural_scrolling = 1;  /* touchpads: 1 = content follows the finger direction */
+static const int mouse_natural_scrolling = 0;  /* mice: 1 = reversed wheel, 0 = normal */
 static const int disable_while_typing = 1;  /* 1 = ignore the touchpad while typing */
 static const int left_handed = 0;  /* 1 = swap left and right buttons */
 static const int middle_button_emulation = 0;  /* 1 = pressing left and right together acts as middle click */
