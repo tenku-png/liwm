@@ -65,6 +65,7 @@ static const Key keys[] = {
 	{ MODKEY,                    XKB_KEY_e,           spawn,            {.v = filecmd} },  /* Super+E: file manager */
 	{ MODKEY,                    XKB_KEY_w,           spawn,            {.v = browser} },  /* Super+W: browser */
 	{ MODKEY,                    XKB_KEY_r,           spawn,            {.v = wlaunch} },  /* Super+R: launcher */
+	{ MODKEY,                    XKB_KEY_space,       spawn,            {.v = wlaunch} },  /* Super+Space: launcher */
 	{ MODKEY|SHIFT,              XKB_KEY_B,           spawn,            {.v = btop} },  /* Super+Shift+B: btop */
 	{ MODKEY,                    XKB_KEY_v,           spawn,            SHCMD("clip-pick") },  /* Super+V: clipboard history (cliphist + bemenu) */
 	{ MODKEY|SHIFT,              XKB_KEY_V,           spawn,            SHCMD("bemoji -t") },  /* Super+Shift+V: emoji picker */
