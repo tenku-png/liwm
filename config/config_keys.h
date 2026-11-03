@@ -40,7 +40,11 @@
 
 /* Programs (from Hyprland programs.lua). footclient reuses one `foot --server`
  * process for every window; falls back to plain foot if no server runs. */
-static const char *termcmd[]  = { "/bin/sh", "-c", "footclient 2>/dev/null || foot", NULL };
+/* footclient when `foot --server` runs (its socket exists), plain foot otherwise.
+ * Not "footclient || foot": footclient exits non-zero when its window is
+ * closed, which would open a new foot. */
+static const char *termcmd[]  = { "/bin/sh", "-c",
+	"if [ -S \"$XDG_RUNTIME_DIR/foot-$WAYLAND_DISPLAY.sock\" ]; then exec footclient; else exec foot; fi", NULL };
 static const char *filecmd[]  = { "thunar", NULL };
 static const char *browser[]  = { "zen-browser", NULL };
 static const char *wlaunch[]  = { "bemenu-run", NULL };  /* application launcher (bemenu-wayland) */
