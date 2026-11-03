@@ -75,9 +75,9 @@ static const Key keys[] = {
 
 	/* Focus by direction (0 = up, 1 = left, 2 = down, 3 = right) */
 	{ MODKEY,                    XKB_KEY_Up,          focusdir,         {.ui = 0} },
-	{ MODKEY,                    XKB_KEY_Left,        focusdir,         {.ui = 1} },
+	{ MODKEY,                    XKB_KEY_Left,        focusstackcenter, {.i = -1} },  /* Super+Left: previous window, centered */
 	{ MODKEY,                    XKB_KEY_Down,        focusdir,         {.ui = 2} },
-	{ MODKEY,                    XKB_KEY_Right,       focusdir,         {.ui = 3} },
+	{ MODKEY,                    XKB_KEY_Right,       focusstackcenter, {.i = +1} },  /* Super+Right: next window, centered */
 
 	/* Move window (0 = left, 1 = right, 2 = up, 3 = down) */
 	{ MODKEY|SHIFT,              XKB_KEY_Left,        movewinbykeys,    {.i = 0} },
@@ -140,8 +140,8 @@ static const Key keys[] = {
 
 	/* --- Canvas (lilith-specific) --- */
 	{ MODKEY,                    XKB_KEY_z,           zoomfit,          {0} },  /* Super+Z: zoom out to fit all windows */
-	{ MODKEY,                    XKB_KEY_equal,       zoom,             {.f = +0.25f} },  /* Super+=: zoom in */
-	{ MODKEY,                    XKB_KEY_minus,       zoom,             {.f = -0.25f} },  /* Super+-: zoom out */
+	{ MODKEY,                    XKB_KEY_equal,       zoom,             {.f = +0.15f} },  /* Super+=: zoom in */
+	{ MODKEY,                    XKB_KEY_minus,       zoom,             {.f = -0.15f} },  /* Super+-: zoom out */
 	{ MODKEY,                    XKB_KEY_Home,        homecanvas,       {0} },  /* Super+Home: canvas back to start */
 	{ MODKEY|CTRL|SHIFT,         XKB_KEY_Left,        movecanvas,       {.i = 0} },  /* pan canvas */
 	{ MODKEY|CTRL|SHIFT,         XKB_KEY_Right,       movecanvas,       {.i = 1} },
@@ -168,7 +168,6 @@ static const Button buttons[] = {
 	{ ClkClient, MODKEY|SHIFT, BTN_LEFT, movecanvasmouse, {.f = 1} },  /* Super+Shift+left drag: pan canvas */
 	{ ClkRoot,   0,      BTN_LEFT,   movecanvasmouse, {.f = 1} },  /* left drag on empty canvas: pan */
 	{ ClkRoot,   0,      BTN_MIDDLE, movecanvasmouse, {.f = 1} },  /* middle drag on empty canvas: pan */
-	{ ClkRoot,   0,      BTN_RIGHT,  spawn,          {.v = termcmd} },  /* right click on empty canvas: terminal */
 	{ ClkTagBar, 0,      BTN_LEFT,   view,           {0} },
 	{ ClkTagBar, 0,      BTN_RIGHT,  toggleview,     {0} },
 	{ ClkTagBar, MODKEY, BTN_LEFT,   tag,            {0} },
@@ -178,10 +177,10 @@ static const Button buttons[] = {
 	{ ClkClient, MODKEY, SCROLL_DOWN, viewrel, {.i = -1} },
 	{ ClkRoot,   MODKEY, SCROLL_UP,   viewrel, {.i = +1} },
 	{ ClkRoot,   MODKEY, SCROLL_DOWN, viewrel, {.i = -1} },
-	{ ClkClient, MODKEY|ALT_MODKEY, SCROLL_UP,   zoom, {.f = +0.25f} },  /* Super+Alt+scroll: zoom */
-	{ ClkClient, MODKEY|ALT_MODKEY, SCROLL_DOWN, zoom, {.f = -0.25f} },
-	{ ClkRoot,   0,      SCROLL_UP,   zoom, {.f = +0.25f} },  /* scroll on empty canvas: zoom */
-	{ ClkRoot,   0,      SCROLL_DOWN, zoom, {.f = -0.25f} },
+	{ ClkClient, MODKEY|ALT_MODKEY, SCROLL_UP,   zoom, {.f = +0.15f} },  /* Super+Alt+scroll: zoom */
+	{ ClkClient, MODKEY|ALT_MODKEY, SCROLL_DOWN, zoom, {.f = -0.15f} },
+	{ ClkRoot,   0,      SCROLL_UP,   zoom, {.f = +0.15f} },  /* scroll on empty canvas: zoom */
+	{ ClkRoot,   0,      SCROLL_DOWN, zoom, {.f = -0.15f} },
 };
 /* Graphics tablet pen buttons. Format: { button, state, function, argument }.
  * The single placeholder entry below binds nothing. */

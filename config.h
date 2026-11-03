@@ -37,6 +37,18 @@ static const Rule rules[] = {
  * area; 0 = leave their initial position untouched. */
 #define CENTER_NEW_WINDOWS 0
 
+/* 1 = every new window waits until you drag out its rectangle on the canvas
+ * (original lilith behaviour); 0 = windows open centered right away. */
+#define SPAWN_REGION 0
+/* Size used for new windows that do not ask for one (SPAWN_REGION 0). */
+#define DEFAULT_WIN_W 1000
+#define DEFAULT_WIN_H 640
+
+/* 1 = plain left drag on a window border resizes it from that edge/corner. */
+#define EDGE_RESIZE 1
+/* Minimum grab zone in screen pixels (the border itself is used if wider). */
+#define EDGE_RESIZE_MIN 6
+
 /* Per-output rules, matched by output-name substring (e.g. "eDP-1").
  * Fields: { name (NULL = any output), scale, transform,
  *           x, y (-1 = automatic position),

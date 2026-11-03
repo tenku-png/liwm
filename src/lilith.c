@@ -493,6 +493,8 @@ static void canvas_inertia_step(Monitor *m);
 static void popup_zoom_commit(struct wl_listener *listener, void *data);
 static void popup_zoom_destroy(struct wl_listener *listener, void *data);
 static void spawnregion(const Arg *arg);
+static unsigned int client_edges_at(Client *c, double x, double y);
+static const char *edge_cursor(unsigned int e);
 static void spawnregion_update_rect(void);
 static void spawnregion_finish(void);
 static void createtablet(struct wlr_input_device *device);
@@ -571,6 +573,11 @@ static unsigned int cursor_mode;
 static Client *grabc;
 static int grabcx, grabcy;
 static double resize_grab_world_x = 0.0;
+/* Edge resize: which edges follow the cursor (0 = legacy bottom-right
+ * resize) and the window box in world coordinates when the grab started. */
+enum { EdgeL = 1, EdgeR = 2, EdgeT = 4, EdgeB = 8 };
+static unsigned int resize_edges = 0;
+static int resize_l0, resize_r0, resize_t0, resize_b0;
 static double resize_grab_world_y = 0.0;
 static int resize_snap_x_target = 0;
 static int resize_snap_y_target = 0;
@@ -934,6 +941,25 @@ buttonpress(struct wl_listener *listener, void *data)
 
 		keyboard = wlr_seat_get_keyboard(seat);
 		mods = keyboard ? wlr_keyboard_get_modifiers(keyboard) : 0;
+#if EDGE_RESIZE
+		if (click == ClkClient && c && event->button == BTN_LEFT
+				&& CLEANMASK(mods) == 0 && !client_is_unmanaged(c)
+				&& !c->isfullscreen) {
+			unsigned int e = client_edges_at(c, cursor->x, cursor->y);
+			if (e) {
+				grabc = c;
+				setfloating(grabc, 1);
+				resize_edges = e;
+				resize_l0 = c->geom.x;
+				resize_r0 = c->geom.x + c->geom.width;
+				resize_t0 = c->geom.y;
+				resize_b0 = c->geom.y + c->geom.height;
+				cursor_mode = CurResize;
+				wlr_cursor_set_xcursor(cursor, cursor_mgr, edge_cursor(e));
+				return;
+			}
+		}
+#endif
 		for (b = buttons; b < END(buttons); b++) {
 			if (CLEANMASK(mods) == CLEANMASK(b->mod) &&
 					event->button == b->button && click == b->click && b->func) {
@@ -958,6 +984,7 @@ buttonpress(struct wl_listener *listener, void *data)
 			inertia_go = (cursor_mode == CurMove);
 			wlr_cursor_set_xcursor(cursor, cursor_mgr, "default");
 			cursor_mode = CurNormal;
+			resize_edges = 0;
 			if (grabc && grabc->mon) {
 				int tagidx = getcurrenttag(grabc->mon);
 				grabc->home_cx = grabc->mon->canvas[tagidx].cx;
@@ -2873,9 +2900,27 @@ mapnotify(struct wl_listener *listener, void *data)
 				c->geom = pending_spawn_geo;
 			}
 		} else {
+#if SPAWN_REGION
 			wlr_scene_node_set_enabled(&c->scene->node, 0);
 			waiting_geo_client = c;
 			spawnregion(NULL);
+#else
+			/* Open at the client's own size (or the default when it has
+			 * none yet), centered on the focused monitor. */
+			c->isfloating = 1;
+			if (!c->mon)
+				c->mon = selmon;
+			if (c->mon) {
+				struct wlr_box g = c->geom;
+				if (g.width < 100 + 2 * (int)c->bw)
+					g.width = DEFAULT_WIN_W + 2 * (int)c->bw;
+				if (g.height < 100 + 2 * (int)c->bw)
+					g.height = DEFAULT_WIN_H + 2 * (int)c->bw;
+				g.x = c->mon->w.x + (c->mon->w.width - g.width) / 2;
+				g.y = c->mon->w.y + (c->mon->w.height - g.height) / 2;
+				c->geom = g;
+			}
+#endif
 		}
 	}
 unset_fullscreen:
@@ -3055,7 +3100,32 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 		}
 		return;
 	} else if (cursor_mode == CurResize) {
-		if (grabc && grabc->mon) {
+		if (grabc && resize_edges) {
+			Monitor *rm = grabc->mon;
+			double es = rm ? rm->zoom_scale : 1.0;
+			int wx, wy, minsz = 2 * (int)grabc->bw + 40;
+			struct wlr_box geo;
+			if (fabs(es) < 1e-9) es = 1.0;
+			wx = (int)llround((cursor->x - (rm ? rm->zoom_pan_x : 0.0)) / es);
+			wy = (int)llround((cursor->y - (rm ? rm->zoom_pan_y : 0.0)) / es);
+			geo.x = resize_l0;
+			geo.y = resize_t0;
+			geo.width = resize_r0 - resize_l0;
+			geo.height = resize_b0 - resize_t0;
+			if (resize_edges & EdgeR)
+				geo.width = MAX(minsz, wx - resize_l0);
+			if (resize_edges & EdgeL) {
+				geo.x = MIN(wx, resize_r0 - minsz);
+				geo.width = resize_r0 - geo.x;
+			}
+			if (resize_edges & EdgeB)
+				geo.height = MAX(minsz, wy - resize_t0);
+			if (resize_edges & EdgeT) {
+				geo.y = MIN(wy, resize_b0 - minsz);
+				geo.height = resize_b0 - geo.y;
+			}
+			resize(grabc, geo, 1);
+		} else if (grabc && grabc->mon) {
 			double rzs = grabc->mon->zoom_scale;
 			int rzsx, rzsy, new_w, new_h;
 			struct wlr_box geo;
@@ -3081,6 +3151,18 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 
 	if (!surface && !seat->drag && !spawnregion_active)
 		wlr_cursor_set_xcursor(cursor, cursor_mgr, "default");
+#if EDGE_RESIZE
+	if (c && cursor_mode == CurNormal && !seat->drag && !spawnregion_active
+			&& !c->isfullscreen
+			&& !client_is_unmanaged(c)) {
+		unsigned int e = client_edges_at(c, cursor->x, cursor->y);
+		if (e) {
+			wlr_cursor_set_xcursor(cursor, cursor_mgr, edge_cursor(e));
+			wlr_seat_pointer_notify_clear_focus(seat);
+			return;
+		}
+	}
+#endif
 
 	if (c && !surface && c->mon && fabs(c->mon->zoom_scale - 1.0) >= 1e-9)
 		surface = client_surface(c);
@@ -3096,6 +3178,46 @@ motionrelative(struct wl_listener *listener, void *data)
 			event->unaccel_dx, event->unaccel_dy);
 }
 
+/* Which border edges of c are under the screen point (x, y). The grab zone
+ * is the drawn border (scaled by the zoom), at least EDGE_RESIZE_MIN px. */
+unsigned int
+client_edges_at(Client *c, double x, double y)
+{
+	Monitor *m = c->mon;
+	double s = m ? m->zoom_scale : 1.0, px = m ? m->zoom_pan_x : 0.0,
+	       py = m ? m->zoom_pan_y : 0.0, x0, x1, y0, y1, g;
+	unsigned int e = 0;
+
+	if (fabs(s) < 1e-9) s = 1.0;
+	x0 = c->geom.x * s + px;
+	y0 = c->geom.y * s + py;
+	x1 = (c->geom.x + c->geom.width) * s + px;
+	y1 = (c->geom.y + c->geom.height) * s + py;
+	g = MAX((double)c->bw * s, (double)EDGE_RESIZE_MIN);
+	if (x < x0 - g || x > x1 + g || y < y0 - g || y > y1 + g)
+		return 0;
+	if (x < x0 + g) e |= EdgeL;
+	else if (x > x1 - g) e |= EdgeR;
+	if (y < y0 + g) e |= EdgeT;
+	else if (y > y1 - g) e |= EdgeB;
+	return e;
+}
+
+const char *
+edge_cursor(unsigned int e)
+{
+	switch (e) {
+	case EdgeL: return "w-resize";
+	case EdgeR: return "e-resize";
+	case EdgeT: return "n-resize";
+	case EdgeB: return "s-resize";
+	case EdgeL | EdgeT: return "nw-resize";
+	case EdgeR | EdgeT: return "ne-resize";
+	case EdgeL | EdgeB: return "sw-resize";
+	default: return "se-resize";
+	}
+}
+
 void
 moveresize(const Arg *arg)
 {
@@ -3106,6 +3228,7 @@ moveresize(const Arg *arg)
 		return;
 
 	setfloating(grabc, 1);
+	resize_edges = 0;
 	resize_snap_x_target = 0;
 	resize_snap_y_target = 0;
 	switch (cursor_mode = arg->ui) {
@@ -5555,13 +5678,21 @@ zoom(const Arg *arg)
 
 	old_s = selmon->zoom_scale;
 	delta = arg ? arg->f : 0.0;
-	new_s = old_s + delta;
+	/* Step from where the running animation is heading, so fast scrolling
+	 * accumulates instead of restarting from a half-finished value, and
+	 * scale multiplicatively so every notch feels the same at any zoom. */
+	new_s = (selmon->zoom_anim_t < 1.0 ? selmon->zoom_target : old_s) * exp(delta);
 
 	if (new_s < ZOOMMIN) new_s = ZOOMMIN;
 	if (new_s > ZOOMMAX) new_s = ZOOMMAX;
 
+#if ZOOM_TOWARDS_CURSOR
+	fx = cursor->x;
+	fy = cursor->y;
+#else
 	fx = selmon->w.x + selmon->w.width  / 2.0;
 	fy = selmon->w.y + selmon->w.height / 2.0;
+#endif
 
 	selmon->zoom_anchor_fx = fx;
 	selmon->zoom_anchor_fy = fy;
