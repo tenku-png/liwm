@@ -17,14 +17,14 @@ static const int wallpaper_edge = 1;  /* mode 1 only: 1 = never show the backgro
 /* --- Window borders: each window has an inner and an outer border --- */
 
 /* Inner border width in pixels. */
-static const unsigned int innerborderpx = 5;
+static const unsigned int innerborderpx = 1;
 
 static const float focused_inner_border_color[]    = COLOR(0x00557700);  /* inner border of the focused window (0xRRGGBBAA; alpha 00 = invisible) */
 static const float urgent_inner_border_color[]     = COLOR(0xff000000);  /* inner border of a window requesting attention */
 static const float unfocused_inner_border_color[]  = COLOR(0x44444400);  /* inner border of unfocused windows */
 
 /* Outer border width in pixels. */
-static const unsigned int outerborderpx = 5;
+static const unsigned int outerborderpx = 1;
 
 static const float focused_outer_border_color[]    = COLOR(0x005577ff);  /* outer border of the focused window */
 static const float urgent_outer_border_color[]     = COLOR(0xff0000ff);  /* outer border of a window requesting attention */

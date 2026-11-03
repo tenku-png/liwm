@@ -141,13 +141,16 @@ static const Key keys[] = {
 	{ MODKEY|SHIFT,              XKB_KEY_Prior,       tagrel,           {.i = -1} },  /* Super+Shift+PageUp: move window to previous tag */
 
 	/* --- Monitors --- */
-	{ MODKEY,                    XKB_KEY_comma,       focusmon,         {.i = WLR_DIRECTION_LEFT} },
-	{ MODKEY,                    XKB_KEY_period,      focusmon,         {.i = WLR_DIRECTION_RIGHT} },
+	{ MODKEY|CTRL,               XKB_KEY_comma,       focusmon,         {.i = WLR_DIRECTION_LEFT} },  /* Super+Ctrl+,: monitor on the left */
+	{ MODKEY|CTRL,               XKB_KEY_period,      focusmon,         {.i = WLR_DIRECTION_RIGHT} },  /* Super+Ctrl+.: monitor on the right */
+	{ MODKEY,                    XKB_KEY_period,      spawn,            SHCMD("bemoji -t") },  /* Super+.: emoji picker */
 	{ MODKEY|SHIFT,              XKB_KEY_less,        tagmon,           {.i = WLR_DIRECTION_LEFT} },
 	{ MODKEY|SHIFT,              XKB_KEY_greater,     tagmon,           {.i = WLR_DIRECTION_RIGHT} },
 
 	/* --- Canvas (lilith-specific) --- */
 	{ MODKEY,                    XKB_KEY_z,           zoomfit,          {0} },  /* Super+Z: zoom out to fit all windows */
+	{ MODKEY|SHIFT,              XKB_KEY_Z,           zoomreset,        {0} },  /* Super+Shift+Z: back to 100% (sharp) */
+	{ MODKEY,                    XKB_KEY_BackSpace,   zoomreset,        {0} },  /* Super+Backspace: back to 100% */
 	{ MODKEY,                    XKB_KEY_equal,       zoom,             {.f = +0.15f} },  /* Super+=: zoom in */
 	{ MODKEY,                    XKB_KEY_minus,       zoom,             {.f = -0.15f} },  /* Super+-: zoom out */
 	{ MODKEY,                    XKB_KEY_Home,        homecanvas,       {0} },  /* Super+Home: canvas back to start */
