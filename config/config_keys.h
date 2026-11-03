@@ -35,6 +35,8 @@
 
 /* Tag used as a Hyprland-style special workspace (Super+S). Tag 9 = index 8. */
 #define SCRATCHTAG (1 << 8)
+/* Super+scroll / PageUp / PageDown cycle tags 1..8 only (tag 9 = scratchpad). */
+#define RELTAGS 8
 
 /* Programs (from Hyprland programs.lua). footclient reuses one `foot --server`
  * process for every window; falls back to plain foot if no server runs. */
@@ -123,6 +125,12 @@ static const Key keys[] = {
 	TAGKEYS(          XKB_KEY_9, XKB_KEY_parenleft,                     8),
 	{ MODKEY,                    XKB_KEY_0,           view,             {.ui = ~0} },  /* Super+0: show all tags */
 	{ MODKEY|SHIFT,              XKB_KEY_parenright,  tag,              {.ui = ~0} },  /* Super+Shift+0: window on all tags */
+	{ MODKEY,                    XKB_KEY_Next,        viewrel,          {.i = +1} },  /* Super+PageDown: next tag */
+	{ MODKEY,                    XKB_KEY_Prior,       viewrel,          {.i = -1} },  /* Super+PageUp: previous tag */
+	{ MODKEY|CTRL,               XKB_KEY_Right,       viewrel,          {.i = +1} },  /* Ctrl+Super+Right: next tag */
+	{ MODKEY|CTRL,               XKB_KEY_Left,        viewrel,          {.i = -1} },  /* Ctrl+Super+Left: previous tag */
+	{ MODKEY|SHIFT,              XKB_KEY_Next,        tagrel,           {.i = +1} },  /* Super+Shift+PageDown: move window to next tag */
+	{ MODKEY|SHIFT,              XKB_KEY_Prior,       tagrel,           {.i = -1} },  /* Super+Shift+PageUp: move window to previous tag */
 
 	/* --- Monitors --- */
 	{ MODKEY,                    XKB_KEY_comma,       focusmon,         {.i = WLR_DIRECTION_LEFT} },
@@ -166,10 +174,12 @@ static const Button buttons[] = {
 	{ ClkTagBar, MODKEY, BTN_LEFT,   tag,            {0} },
 	{ ClkTagBar, MODKEY, BTN_RIGHT,  toggletag,      {0} },
 	{ ClkStatus, 0,      BTN_MIDDLE, spawn,          {.v = termcmd} },
-	{ ClkClient, MODKEY, SCROLL_UP,   zoom, {.f = +0.25f} },  /* Super+scroll: zoom */
-	{ ClkClient, MODKEY, SCROLL_DOWN, zoom, {.f = -0.25f} },
-	{ ClkRoot,   MODKEY, SCROLL_UP,   zoom, {.f = +0.25f} },
-	{ ClkRoot,   MODKEY, SCROLL_DOWN, zoom, {.f = -0.25f} },
+	{ ClkClient, MODKEY, SCROLL_UP,   viewrel, {.i = +1} },  /* Super+scroll: switch tags (like Hyprland) */
+	{ ClkClient, MODKEY, SCROLL_DOWN, viewrel, {.i = -1} },
+	{ ClkRoot,   MODKEY, SCROLL_UP,   viewrel, {.i = +1} },
+	{ ClkRoot,   MODKEY, SCROLL_DOWN, viewrel, {.i = -1} },
+	{ ClkClient, MODKEY|ALT_MODKEY, SCROLL_UP,   zoom, {.f = +0.25f} },  /* Super+Alt+scroll: zoom */
+	{ ClkClient, MODKEY|ALT_MODKEY, SCROLL_DOWN, zoom, {.f = -0.25f} },
 	{ ClkRoot,   0,      SCROLL_UP,   zoom, {.f = +0.25f} },  /* scroll on empty canvas: zoom */
 	{ ClkRoot,   0,      SCROLL_DOWN, zoom, {.f = -0.25f} },
 };

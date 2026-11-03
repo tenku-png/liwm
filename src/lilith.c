@@ -442,6 +442,8 @@ static void updatemons(struct wl_listener *listener, void *data);
 static void updatetitle(struct wl_listener *listener, void *data);
 static void urgent(struct wl_listener *listener, void *data);
 static void view(const Arg *arg);
+static void viewrel(const Arg *arg);
+static void tagrel(const Arg *arg);
 static void virtualkeyboard(struct wl_listener *listener, void *data);
 static void virtualpointer(struct wl_listener *listener, void *data);
 static Monitor *xytomon(double x, double y);
@@ -4389,6 +4391,43 @@ urgent(struct wl_listener *listener, void *data)
 
 	if (client_surface(c)->mapped)
 		client_set_border_color(c, urgent_inner_border_color, urgent_outer_border_color);
+}
+
+/* Number of tags cycled by viewrel/tagrel; the remaining tags (e.g. a
+ * scratchpad tag) are only reachable directly. */
+#ifndef RELTAGS
+#define RELTAGS TAGCOUNT
+#endif
+
+static uint32_t
+reltagmask(int delta)
+{
+	int cur = getcurrenttag(selmon);
+	int n = ((cur + delta) % RELTAGS + RELTAGS) % RELTAGS;
+	return 1u << n;
+}
+
+/* View the neighbouring tag: arg->i = +1 next, -1 previous (wraps around). */
+void
+viewrel(const Arg *arg)
+{
+	Arg a;
+	if (!selmon)
+		return;
+	a.ui = reltagmask(arg->i);
+	view(&a);
+}
+
+/* Move the focused window to the neighbouring tag and follow it. */
+void
+tagrel(const Arg *arg)
+{
+	Arg a;
+	if (!selmon || !focustop(selmon))
+		return;
+	a.ui = reltagmask(arg->i);
+	tag(&a);
+	view(&a);
 }
 
 void

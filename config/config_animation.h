@@ -50,8 +50,8 @@
 #define ZOOMMIN 0.3  /* smallest allowed zoom factor (0.3 = 30%); also used to warn when the wallpaper is too small */
 #define ZOOMMAX 1  /* largest allowed zoom factor (1 = 100%) */
 #define animatezoom 1.5  /* non-zero = animate zoom changes, 0 = instant (only used as an on/off switch) */
-#define zoomduration 0.55  /* length of the zoom animation */
-#define zoombezier ".22,1.3,.36,1.0"  /* easing curve (y > 1 gives a slight overshoot) */
+#define zoomduration 0.15  /* length of the zoom animation */
+#define zoombezier ".25,.1,.25,1"  /* easing curve (y > 1 gives a slight overshoot) */
 #define movecanvasmouse_multiplier_is_affected_by_zoom 0  /* 1 = mouse canvas dragging is divided by the zoom factor, 0 = raw pointer distance */
 #define ZOOM_IN_TOWARDS_CURSOR 0  /* reserved: not read by the current code (zoom is anchored at the center of the monitor) */
 #define ZOOM_OUT_TOWARDS_CURSOR 0  /* reserved: not read by the current code (zoom is anchored at the center of the monitor) */
