@@ -186,6 +186,10 @@ static const Button buttons[] = {
 	{ ClkRoot,   MODKEY, SCROLL_DOWN, viewrel, {.i = -1} },
 	{ ClkClient, MODKEY|ALT_MODKEY, SCROLL_UP,   zoom, {.f = +0.15f} },  /* Super+Alt+scroll: zoom */
 	{ ClkClient, MODKEY|ALT_MODKEY, SCROLL_DOWN, zoom, {.f = -0.15f} },
+	{ ClkClient, ALT_MODKEY, SCROLL_UP,   zoom, {.f = +0.15f} },  /* Alt+scroll anywhere: zoom the canvas */
+	{ ClkClient, ALT_MODKEY, SCROLL_DOWN, zoom, {.f = -0.15f} },
+	{ ClkRoot,   ALT_MODKEY, SCROLL_UP,   zoom, {.f = +0.15f} },
+	{ ClkRoot,   ALT_MODKEY, SCROLL_DOWN, zoom, {.f = -0.15f} },
 	{ ClkRoot,   0,      SCROLL_UP,   zoom, {.f = +0.15f} },  /* scroll on empty canvas: zoom */
 	{ ClkRoot,   0,      SCROLL_DOWN, zoom, {.f = -0.15f} },
 };
