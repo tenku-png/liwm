@@ -15,7 +15,8 @@ enum { BarAlignStart, BarAlignCenter, BarAlignEnd };
  * BarModSpacer is flexible empty space that pushes later modules to the far end. */
 enum { BarModTags, BarModStatus, BarModSpacer,
        BarModVolume, BarModBrightness, BarModBattery,
-       BarModCpu, BarModRam, BarModTemp, BarModLayout, BarModCount };
+       BarModCpu, BarModRam, BarModTemp, BarModLayout,
+       BarModMedia, BarModCount };  /* BarModMedia is drawn centered (see barmedia) */
 /* Decoration of active tags: none, line on the inner edge, line on the outer edge, both edges, or a full rectangle border. */
 enum { BarDecoNone, BarDecoInner, BarDecoOuter, BarDecoBoth, BarDecoBorder };
 /* Indicator for tags that contain windows: none, dwm-style square, dot, or line. */
@@ -30,7 +31,7 @@ enum { SchemeOcc = SchemeUrg + 1, SchemeBar, SchemeStatus, SchemeSep, SchemeBord
        SchemeVolume, SchemeMuted, SchemeBrightness,
        SchemeBattery, SchemeBatChg, SchemeBatLow,
        SchemeCpu, SchemeCpuWarn, SchemeRam, SchemeRamWarn,
-       SchemeTemp, SchemeTempWarn, SchemeLayout, SchemeCount };
+       SchemeTemp, SchemeTempWarn, SchemeLayout, SchemeMedia, SchemeCount };
 
 /* --- Position and size --- */
 static const int showbar         = 1;  /* 1 = bar visible at startup */
@@ -55,7 +56,7 @@ static const int barvpad         = 5;  /* vertical padding above and below text 
 static const int barlrpad        = 2;  /* horizontal padding around text; 0 = use the font height */
 
 /* --- Modules and separators --- */
-static const int barorder[]      = { BarModTags, BarModSpacer, BarModStatus };  /* modules from start to end of the bar */
+static const int barorder[]      = { BarModTags, BarModSpacer, BarModLayout, BarModVolume, BarModBrightness, BarModCpu, BarModRam, BarModStatus };  /* modules from start to end of the bar */
 static const int barmodulegap    = 2;  /* gap between modules */
 static const int barsepwidth     = 0;  /* thickness of the separator line between modules; 0 = none (needs barmodulegap > 0) */
 static const int barseppct       = 60;  /* separator line length as a percentage of the bar thickness (max 100) */
@@ -92,7 +93,7 @@ static const char *barshowbezier    = ".28,.67,.28,1.04";  /* show easing curve 
 /* --- Status modules and data sources --- */
 static const int barstatusallmons = 0;  /* 1 = show status modules on every monitor, 0 = only on the focused one */
 #define barstatusstdin  0  /* 1 = read the status text from stdin when it is not a terminal (dwm-style status pipe) */
-static const char *barclockfmt   = "%H:%M";  /* strftime() format of the built-in clock (updates every second if it contains seconds, otherwise every minute) */
+static const char *barclockfmt   = "%a %H:%M";  /* strftime() format of the built-in clock (updates every second if it contains seconds, otherwise every minute) */
 
 /* Polling intervals and device selection. */
 static const int barsysinterval  = 2000;  /* ms between CPU/RAM/temperature/battery/brightness updates */
@@ -100,13 +101,22 @@ static const int barvolinterval  = 5000;  /* ms between volume refreshes (checke
 static const int barkickms       = 150;  /* ms after a barspawn() command before modules are refreshed, so volume and brightness react to key presses */
 static const char *barvolcmd[]   = { "wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@", NULL };  /* command whose output is parsed for the volume */
 static const char *barbatname    = "";  /* battery under /sys/class/power_supply (e.g. "BAT0"); "" = first found */
-static const char *barblname     = "";  /* backlight under /sys/class/backlight; "" = first found */
+static const char *barblname     = "";
+/* Brightness without a backlight (desktop monitors): DDC/CI via ddcutil.
+ * Output of "--brief" is "VCP 10 C <current> <max>". */
+static const char *barbricmd[]   = { "ddcutil", "getvcp", "10", "--brief", NULL };
+static const int barbriinterval  = 30000;  /* ms between ddcutil brightness polls (it is slow) */
+/* Now playing, drawn in the middle of the bar (MPRIS via playerctl). */
+static const int barmedia        = 1;  /* 1 = show BarModMedia centered */
+static const char *barmediacmd[] = { "playerctl", "metadata", "--format", "{{artist}} - {{title}}", NULL };
+static const int barmediainterval = 2000;  /* ms between polls */
+static const int barmediamax     = 60;  /* max bytes of the title shown */  /* backlight under /sys/class/backlight; "" = first found */
 static const char *bartemppath   = "";  /* temperature file (e.g. /sys/class/thermal/thermal_zone0/temp); "" = auto-detect */
 static const int barbatwarn      = 20;  /* battery % at or below which the low-battery color is used */
 static const int barcpuwarn      = 85;  /* CPU load % at or above which the warning color is used */
 static const int barramwarn      = 85;  /* RAM usage % at or above which the warning color is used */
 static const int bartempwarn     = 80;  /* temperature in degrees C at or above which the warning color is used */
-static const char *barlayoutnames[] = { "us" };  /* display names for keyboard layouts, indexed by layout number (see xkb_rules) */
+static const char *barlayoutnames[] = { "en", "ru" };  /* display names for keyboard layouts, indexed by layout number (see xkb_rules) */
 
 /* --- Icons: UTF-8 byte sequences of Font Awesome glyphs (an icon font must
  *     be available in barfonts[]) --- */
@@ -128,11 +138,11 @@ static const char *barlayoutnames[] = { "us" };  /* display names for keyboard l
 /* --- Module text formats ---
  * Placeholders: %i = icon, %v = integer value, %s = text (volume: "muted" or
  * empty; layout: layout name), %u / %t = used / total (RAM), %% = literal %. */
-static const char *barfmt_vol    = "%v%%";  /* volume */
-static const char *barfmt_bri    = "%v%%";  /* brightness */
+static const char *barfmt_vol    = "vol:%v";  /* volume */
+static const char *barfmt_bri    = "bri:%v";  /* brightness */
 static const char *barfmt_bat    = "%v%%";  /* battery */
-static const char *barfmt_cpu    = "%v%%";  /* CPU load */
-static const char *barfmt_ram    = "%u/%tG";  /* RAM: used/total */
+static const char *barfmt_cpu    = "cpu:%v%%";  /* CPU load */
+static const char *barfmt_ram    = "ram:%uG";  /* RAM: used/total */
 static const char *barfmt_temp   = "%v°C";  /* temperature */
 static const char *barfmt_layout = "%s";  /* keyboard layout name */
 
@@ -171,4 +181,5 @@ static const uint32_t barcolors[SchemeCount][3] = {
 	[SchemeTemp]      = { 0xbbbbbbff, 0x00000000, 0 },  /* temperature module */
 	[SchemeTempWarn]  = { 0xeeeeeeff, 0xff0000ff, 0 },  /* temperature module above bartempwarn */
 	[SchemeLayout]    = { 0xbbbbbbff, 0x00000000, 0 },  /* keyboard layout module */
+	[SchemeMedia]     = { 0xeeeeeeff, 0x00000000, 0 },  /* now playing (centered) */
 };

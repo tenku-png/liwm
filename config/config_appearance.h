@@ -1,5 +1,8 @@
 /* --- Focus --- */
 static const int sloppyfocus                       = 1;  /* 1 = focus follows the mouse pointer */
+/* With sloppyfocus: ms the pointer must rest on a window before it gets
+ * focus (0 = immediately). Stops neighbours stealing focus on a brush. */
+#define FOCUS_DELAY_MS 120
 static const int bypass_surface_visibility         = 0;  /* 1 = idle inhibitors from any surface count, even invisible ones; 0 = only visible surfaces inhibit idle */
 
 /* Background color of the empty canvas (0xRRGGBBAA). */

@@ -61,6 +61,21 @@ static long bar_blmax;
 
 static int bar_vol_fd = -1, bar_vol_again;
 static struct wl_event_source *bar_vol_src;
+
+/* Async one-shot commands whose output feeds a module (media, ddcutil). */
+typedef struct {
+	const char *const *argv;
+	int fd, again;
+	struct wl_event_source *src;
+	char buf[512];
+	size_t len;
+	void (*done)(const char *out);
+} BarCmd;
+static void bar_media_done(const char *out);
+static void bar_bricmd_done(const char *out);
+static BarCmd bar_media_cmd = { barmediacmd, -1, 0, NULL, {0}, 0, bar_media_done };
+static void bar_cmd_start(BarCmd *c);
+static BarCmd bar_bri_cmd   = { barbricmd,   -1, 0, NULL, {0}, 0, bar_bricmd_done };
 static char bar_vol_buf[256];
 static size_t bar_vol_len;
 
@@ -896,6 +911,7 @@ bar_draw(Monitor *m)
 
 	memset(m->bar_tagx, 0, sizeof(m->bar_tagx));
 	memset(m->bar_tagw, 0, sizeof(m->bar_tagw));
+	memset(m->bar_modw, 0, sizeof(m->bar_modw));
 	m->bar_statusx = m->bar_statusw = 0;
 
 	if (b > 0)
@@ -941,7 +957,7 @@ bar_draw(Monitor *m)
 			flex = 1;
 			break;
 		default:
-			if (type < BarModVolume || type >= BarModCount
+			if (type < BarModVolume || type >= BarModCount || type == BarModMedia
 					|| !showmods || !bar_modtxt[type][0])
 				continue;
 			len = (up ? bar_lines(bar_modtxt[type]) * fh
@@ -1028,7 +1044,28 @@ bar_draw(Monitor *m)
 		default:
 			bar_draw_text(&k, slots[j].start, slots[j].len,
 					bar_modtxt[slots[j].type], bar_modsch[slots[j].type]);
+			if (slots[j].type < 32) {
+				m->bar_modx[slots[j].type] = slots[j].start;
+				m->bar_modw[slots[j].type] = slots[j].len;
+			}
 			break;
+		}
+	}
+
+	/* Now playing: centered on the bar, skipped if it would cover a module */
+	if (barmedia && showmods && !up && bar_modtxt[BarModMedia][0]) {
+		int mw = bar_status_run(NULL, 0, 0, 0, bar_modtxt[BarModMedia], 0, 0, -1) + bar_lrpad;
+		int mx = ((up ? Sh : Sw) - mw) / 2, clash = 0;
+		for (j = 0; j < ns; j++) {
+			if (slots[j].flex)
+				continue;
+			if (mx < slots[j].start + slots[j].len && slots[j].start < mx + mw)
+				clash = 1;
+		}
+		if (!clash) {
+			bar_draw_text(&k, mx, mw, bar_modtxt[BarModMedia], SchemeMedia);
+			m->bar_modx[BarModMedia] = mx;
+			m->bar_modw[BarModMedia] = mw;
 		}
 	}
 
@@ -1287,6 +1324,21 @@ bar_click(Monitor *m, double cx, double cy, unsigned int button, uint32_t mods)
 			&& u < m->bar_statusx + m->bar_statusw)
 		click = ClkStatus;
 
+	/* Per-module actions (baractions[] in config_keys.h) */
+	if (click == ClkTitle) {
+		const BarAction *a;
+		for (a = baractions; a < END(baractions); a++) {
+			if (a->mod < 0 || a->mod >= 32 || m->bar_modw[a->mod] <= 0
+					|| a->button != button || !a->cmd)
+				continue;
+			if (u >= m->bar_modx[a->mod] && u < m->bar_modx[a->mod] + m->bar_modw[a->mod]) {
+				Arg sa = { .v = (const char *[]){ "/bin/sh", "-c", a->cmd, NULL } };
+				barspawn(&sa);
+				return;
+			}
+		}
+	}
+
 	for (b = buttons; b < END(buttons); b++) {
 		if (b->click == click && b->button == button && b->func
 				&& CLEANMASK(mods) == CLEANMASK(b->mod)) {
@@ -1525,7 +1577,9 @@ bar_upd_bri(void)
 	long cur;
 	int pct;
 
-	if (!bar_bl_ok || bar_slurp(bar_blcur, buf, sizeof(buf)) <= 0)
+	if (!bar_bl_ok)
+		return 0;  /* desktop monitor: handled by bar_bri_cmd (ddcutil) */
+	if (bar_slurp(bar_blcur, buf, sizeof(buf)) <= 0)
 		return bar_setmod(BarModBrightness, SchemeBrightness, "");
 	cur = atol(buf);
 	pct = (int)((cur * 100 + bar_blmax / 2) / bar_blmax);
@@ -1619,6 +1673,113 @@ bar_vol_start(void)
 	bar_vol_fd = fds[0];
 }
 
+static int
+bar_cmd_cb(int fd, uint32_t mask, void *data)
+{
+	BarCmd *c = data;
+	ssize_t n = read(fd, c->buf + c->len, sizeof(c->buf) - c->len - 1);
+
+	if (n < 0 && (errno == EAGAIN || errno == EINTR))
+		return 0;
+	if (n > 0)
+		c->len += (size_t)n;
+	if (n > 0 && c->len < sizeof(c->buf) - 1)
+		return 0;
+	c->buf[c->len] = '\0';
+	wl_event_source_remove(c->src);
+	c->src = NULL;
+	close(fd);
+	c->fd = -1;
+	c->done(c->buf);
+	if (c->again) {
+		c->again = 0;
+		bar_cmd_start(c);
+	}
+	return 0;
+}
+
+static void
+bar_cmd_start(BarCmd *c)
+{
+	int fds[2];
+	pid_t pid;
+
+	if (!c->argv[0])
+		return;
+	if (c->fd >= 0) {
+		c->again = 1;
+		return;
+	}
+	if (pipe(fds) < 0)
+		return;
+	fcntl(fds[0], F_SETFD, FD_CLOEXEC);
+	fcntl(fds[1], F_SETFD, FD_CLOEXEC);
+	if ((pid = fork()) < 0) {
+		close(fds[0]);
+		close(fds[1]);
+		return;
+	}
+	if (pid == 0) {
+		int nul = open("/dev/null", O_WRONLY);
+		dup2(fds[1], STDOUT_FILENO);
+		if (nul >= 0)
+			dup2(nul, STDERR_FILENO);
+		execvp(c->argv[0], (char *const *)c->argv);
+		_exit(127);
+	}
+	close(fds[1]);
+	fd_set_nonblock(fds[0]);
+	c->len = 0;
+	c->src = wl_event_loop_add_fd(event_loop, fds[0], WL_EVENT_READABLE, bar_cmd_cb, c);
+	if (!c->src) {
+		close(fds[0]);
+		return;
+	}
+	c->fd = fds[0];
+}
+
+static void
+bar_media_done(const char *out)
+{
+	char t[BAR_TXT];
+	size_t n;
+
+	snprintf(t, sizeof(t), "%s", out);
+	bar_chomp(t);
+	if (!strcmp(t, "-") || !strcmp(t, " - "))
+		t[0] = '\0';
+	n = strlen(t);
+	if (barmediamax > 0 && n > (size_t)barmediamax) {
+		n = (size_t)barmediamax;
+		while (n > 0 && ((unsigned char)t[n] & 0xC0) == 0x80)
+			n--;  /* do not cut a UTF-8 sequence in half */
+		t[n] = '\0';
+		if (n + 3 < sizeof(t))
+			strcat(t, "...");
+	}
+	if (bar_setmod(BarModMedia, SchemeMedia, t))
+		bar_draw_all();
+}
+
+static void
+bar_bricmd_done(const char *out)
+{
+	char t[BAR_TXT];
+	long cur = -1, max = -1;
+	int pct;
+
+	/* "VCP 10 C 50 100" */
+	if (sscanf(out, "VCP %*s C %ld %ld", &cur, &max) != 2 || max <= 0) {
+		if (bar_setmod(BarModBrightness, SchemeBrightness, ""))
+			bar_draw_all();
+		return;
+	}
+	pct = (int)((cur * 100 + max / 2) / max);
+	bar_format(t, sizeof(t), barfmt_bri, baricon_bri, pct, NULL, 0, 0);
+	if (bar_setmod(BarModBrightness, SchemeBrightness, t))
+		bar_draw_all();
+}
+
 static void
 bar_layout_update(struct wlr_keyboard *kb)
 {
@@ -1662,8 +1823,18 @@ bar_sys_tick(void *data)
 	static int volacc;
 	int iv = barsysinterval > 0 ? barsysinterval : 2000;
 
+	static int mediaacc, briacc;
+
 	if (bar_sys_update())
 		bar_draw_all();
+	if (barmedia && (mediaacc += iv) >= barmediainterval) {
+		mediaacc = 0;
+		bar_cmd_start(&bar_media_cmd);
+	}
+	if (bar_modused[BarModBrightness] && !bar_bl_ok && (briacc += iv) >= barbriinterval) {
+		briacc = 0;
+		bar_cmd_start(&bar_bri_cmd);
+	}
 	if (bar_modused[BarModVolume] && (volacc += iv) >= barvolinterval) {
 		volacc = 0;
 		bar_vol_start();
@@ -1677,8 +1848,12 @@ bar_kick_tick(void *data)
 {
 	if (bar_modused[BarModBrightness] && bar_upd_bri())
 		bar_draw_all();
+	if (bar_modused[BarModBrightness] && !bar_bl_ok)
+		bar_cmd_start(&bar_bri_cmd);
 	if (bar_modused[BarModVolume])
 		bar_vol_start();
+	if (barmedia)
+		bar_cmd_start(&bar_media_cmd);
 	return 0;
 }
 
@@ -1870,16 +2045,22 @@ bar_init(void)
 		bar_bl_find();
 	if (bar_modused[BarModTemp])
 		bar_temp_find();
+	if (barmedia)
+		bar_modused[BarModMedia] = 1;
 	bar_sys_update();
 	if (bar_modused[BarModVolume])
 		bar_vol_start();
+	if (barmedia)
+		bar_cmd_start(&bar_media_cmd);
+	if (bar_modused[BarModBrightness] && !bar_bl_ok)
+		bar_cmd_start(&bar_bri_cmd);
 	if (bar_modused[BarModCpu] || bar_modused[BarModRam] || bar_modused[BarModTemp]
 			|| bar_modused[BarModBattery] || bar_modused[BarModBrightness]
-			|| bar_modused[BarModVolume]) {
+			|| bar_modused[BarModVolume] || barmedia) {
 		bar_sys_src = wl_event_loop_add_timer(event_loop, bar_sys_tick, NULL);
 		wl_event_source_timer_update(bar_sys_src, barsysinterval > 0 ? barsysinterval : 2000);
 	}
-	if (bar_modused[BarModBrightness] || bar_modused[BarModVolume])
+	if (bar_modused[BarModBrightness] || bar_modused[BarModVolume] || barmedia)
 		bar_kick_src = wl_event_loop_add_timer(event_loop, bar_kick_tick, NULL);
 	if (kb_group)
 		bar_layout_update(&kb_group->wlr_group->keyboard);
@@ -1902,6 +2083,16 @@ bar_cleanup(void)
 		wl_event_source_remove(bar_vol_src);
 	if (bar_vol_fd >= 0)
 		close(bar_vol_fd);
+	if (bar_media_cmd.src)
+		wl_event_source_remove(bar_media_cmd.src);
+	if (bar_media_cmd.fd >= 0)
+		close(bar_media_cmd.fd);
+	if (bar_bri_cmd.src)
+		wl_event_source_remove(bar_bri_cmd.src);
+	if (bar_bri_cmd.fd >= 0)
+		close(bar_bri_cmd.fd);
+	bar_media_cmd.src = bar_bri_cmd.src = NULL;
+	bar_media_cmd.fd = bar_bri_cmd.fd = -1;
 	bar_stdin_src = bar_clock_src = bar_sys_src = bar_kick_src = bar_vol_src = NULL;
 	bar_vol_fd = -1;
 	for (i = 0; i < BAR_NSOLID; i++) {

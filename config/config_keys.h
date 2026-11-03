@@ -61,6 +61,7 @@ static const Key keys[] = {
 	{ MODKEY,                    XKB_KEY_e,           spawn,            {.v = filecmd} },  /* Super+E: file manager */
 	{ MODKEY,                    XKB_KEY_w,           spawn,            {.v = browser} },  /* Super+W: browser */
 	{ MODKEY,                    XKB_KEY_r,           spawn,            {.v = wlaunch} },  /* Super+R: launcher */
+	{ MODKEY,                    XKB_KEY_space,       spawn,            {.v = wlaunch} },  /* Super+Space: launcher */
 	{ MODKEY|SHIFT,              XKB_KEY_B,           spawn,            {.v = btop} },  /* Super+Shift+B: btop */
 	{ MODKEY,                    XKB_KEY_v,           spawn,            SHCMD("clip-pick") },  /* Super+V: clipboard history (cliphist + bemenu) */
 	{ MODKEY|SHIFT,              XKB_KEY_V,           spawn,            SHCMD("bemoji -t") },  /* Super+Shift+V: emoji picker */
@@ -185,6 +186,26 @@ static const Button buttons[] = {
 	{ ClkRoot,   0,      SCROLL_UP,   zoom, {.f = +0.15f} },  /* scroll on empty canvas: zoom */
 	{ ClkRoot,   0,      SCROLL_DOWN, zoom, {.f = -0.15f} },
 };
+/* Clicks and scrolling on bar modules. Format: { module, button, shell command }
+ * Buttons: BTN_LEFT, BTN_RIGHT, BTN_MIDDLE, SCROLL_UP, SCROLL_DOWN. */
+typedef struct {
+	int mod;
+	unsigned int button;
+	const char *cmd;
+} BarAction;
+static const BarAction baractions[] = {
+	{ BarModMedia,      BTN_RIGHT,   "playerctl play-pause" },  /* right click: play/pause */
+	{ BarModMedia,      BTN_LEFT,    "playerctl next" },  /* left click: next track */
+	{ BarModMedia,      SCROLL_UP,   "playerctl position 5+" },  /* scroll: seek +-5 s */
+	{ BarModMedia,      SCROLL_DOWN, "playerctl position 5-" },
+	{ BarModVolume,     SCROLL_UP,   "wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SINK@ 2%+" },
+	{ BarModVolume,     SCROLL_DOWN, "wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%-" },
+	{ BarModVolume,     BTN_RIGHT,   "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle" },
+	/* brightnessctl for laptop backlights, ddcutil (DDC/CI) for desktop monitors */
+	{ BarModBrightness, SCROLL_UP,   "brightnessctl -q set 5%+ 2>/dev/null || ddcutil setvcp 10 + 5" },
+	{ BarModBrightness, SCROLL_DOWN, "brightnessctl -q set 5%- 2>/dev/null || ddcutil setvcp 10 - 5" },
+};
+
 /* Graphics tablet pen buttons. Format: { button, state, function, argument }.
  * The single placeholder entry below binds nothing. */
 static const TabletButton tabletbuttons[] = {

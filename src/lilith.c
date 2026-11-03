@@ -264,6 +264,8 @@ struct Monitor {
 	int bar_above;
 	int bar_tagx[32];
 	int bar_tagw[32];
+	int bar_modx[32];  /* module spans for clicks, indexed by BarMod* */
+	int bar_modw[32];
 	int bar_statusx;
 	int bar_statusw;
 	struct wlr_buffer *bar_bufs[3];
@@ -655,6 +657,12 @@ static struct wlr_xwayland *xwayland;
 #define SCROLL_DOWN 0x14c
 
 #include "config.h"
+
+#if FOCUS_DELAY_MS > 0
+static struct wl_event_source *focus_delay_src;
+static Client *focus_delay_c;
+static int focus_delay_cb(void *data);
+#endif
 
 #if SPAWNREGION_STYLE == 2
 static struct wlr_scene_rect *spawnregion_border[8] = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
@@ -3334,6 +3342,22 @@ outputmgrtest(struct wl_listener *listener, void *data)
 	outputmgrapplyortest(config, 1);
 }
 
+#if FOCUS_DELAY_MS > 0
+static int
+focus_delay_cb(void *data)
+{
+	Client *c = NULL;
+
+	if (!focus_delay_c)
+		return 0;
+	xytonode(cursor->x, cursor->y, NULL, &c, NULL, NULL, NULL);
+	if (c == focus_delay_c && cursor_mode == CurNormal)
+		focusclient(c, 1);
+	focus_delay_c = NULL;
+	return 0;
+}
+#endif
+
 void
 pointerfocus(Client *c, struct wlr_surface *surface, double sx, double sy,
 		uint32_t time)
@@ -3341,8 +3365,25 @@ pointerfocus(Client *c, struct wlr_surface *surface, double sx, double sy,
 	struct timespec now;
 
 	if (surface != seat->pointer_state.focused_surface &&
-			sloppyfocus && time && c && !client_is_unmanaged(c))
+			sloppyfocus && time && c && !client_is_unmanaged(c)) {
+#if FOCUS_DELAY_MS > 0
+		/* Focus only after the pointer rests on the window for a moment,
+		 * so brushing over a neighbour does not steal focus. */
+		if (c == focustop(selmon)) {
+			focus_delay_c = NULL;
+		} else {
+			if (!focus_delay_src)
+				focus_delay_src = wl_event_loop_add_timer(event_loop, focus_delay_cb, NULL);
+			focus_delay_c = c;
+			if (focus_delay_src)
+				wl_event_source_timer_update(focus_delay_src, FOCUS_DELAY_MS);
+			else
+				focusclient(c, 1);
+		}
+#else
 		focusclient(c, 1);
+#endif
+	}
 
 	if (!surface) {
 		wlr_seat_pointer_notify_clear_focus(seat);
@@ -4384,6 +4425,10 @@ unmapnotify(struct wl_listener *listener, void *data)
 {
 	Client *c = wl_container_of(listener, c, unmap);
 	c->inertia = 0;
+#if FOCUS_DELAY_MS > 0
+	if (c == focus_delay_c)
+		focus_delay_c = NULL;
+#endif
 	if (c == grabc) {
 		cursor_mode = CurNormal;
 		grabc = NULL;
