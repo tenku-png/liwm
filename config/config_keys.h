@@ -41,7 +41,7 @@
 static const char *termcmd[]  = { "/bin/sh", "-c", "footclient 2>/dev/null || foot", NULL };
 static const char *filecmd[]  = { "thunar", NULL };
 static const char *browser[]  = { "zen-browser", NULL };
-static const char *wlaunch[]  = { "wmenu-run", NULL };  /* application launcher */
+static const char *wlaunch[]  = { "bemenu-run", NULL };  /* application launcher (bemenu-wayland) */
 static const char *btop[]     = { "foot", "btop", NULL };
 
 /* Audio (wpctl, PipeWire). Volume capped at 150% like in Hyprland. */
