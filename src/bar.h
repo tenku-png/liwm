@@ -71,6 +71,17 @@ static long bar_blmax;
 static int bar_vol_fd = -1, bar_vol_again;
 static struct wl_event_source *bar_vol_src;
 static void bar_vol_nudge(const char *cmd);
+/* tray in the bar (functions at the end of this file) */
+static int bar_tray_open = bartrayopen;
+static double bar_tray_t = bartrayopen;  /* shown fraction 0..1 (animated) */
+static int bar_tray_len(void);
+static void bar_tray_draw(BarCtx *k, int start, int len);
+static void bar_tray_click(Monitor *m, int u, unsigned int button);
+static int tray_popup_hit;
+static int bar_tray_popup_hit(double x, double y);
+static void bar_tray_popup_click(void);
+static void bar_tray_mon_gone(Monitor *m);
+static void bar_tray_cleanup(void);
 static void bar_bri_nudge(Monitor *m, const char *cmd);
 #define BAR_NOVAL (-999999)  /* bar_format: print "--" for %v */
 
@@ -925,6 +936,7 @@ bar_draw(Monitor *m)
 	memset(m->bar_tagw, 0, sizeof(m->bar_tagw));
 	memset(m->bar_modw, 0, sizeof(m->bar_modw));
 	m->bar_statusx = m->bar_statusw = 0;
+	m->tray_w = 0;
 
 	if (b > 0)
 		bar_rect(img, 0, 0, Sw, Sh, barcolors[SchemeBorder][1]);
@@ -967,6 +979,10 @@ bar_draw(Monitor *m)
 			break;
 		case BarModSpacer:
 			flex = 1;
+			break;
+		case BarModTray:
+			if (up || !showmods || !(len = bar_tray_len()))
+				continue;
 			break;
 		default:
 			if (type < BarModVolume || type >= BarModCount || type == BarModMedia
@@ -1047,6 +1063,9 @@ bar_draw(Monitor *m)
 			bar_draw_tags(&k, slots[j].start);
 			break;
 		case BarModSpacer:
+			break;
+		case BarModTray:
+			bar_tray_draw(&k, slots[j].start, slots[j].len);
 			break;
 		case BarModStatus:
 			bar_draw_text(&k, slots[j].start, slots[j].len, bar_status, SchemeStatus);
@@ -1206,6 +1225,7 @@ bar_mon_destroy(Monitor *m)
 	bar_pool_reset(m);
 	if (bar_hover == m)
 		bar_hover = NULL;
+	bar_tray_mon_gone(m);
 }
 
 static void
@@ -1335,6 +1355,12 @@ bar_click(Monitor *m, double cx, double cy, unsigned int button, uint32_t mods)
 	if (click == ClkTitle && m->bar_statusw > 0 && u >= m->bar_statusx
 			&& u < m->bar_statusx + m->bar_statusw)
 		click = ClkStatus;
+
+	if (click == ClkTitle && m->tray_w > 0 && bar_horiz(m)
+			&& u >= m->tray_x && u < m->tray_x + m->tray_w) {
+		bar_tray_click(m, u, button);
+		return;
+	}
 
 	/* Per-module actions (baractions[] in config_keys.h) */
 	if (click == ClkTitle) {
@@ -2094,6 +2120,311 @@ bar_clock_tick(void *data)
 	return 0;
 }
 
+/* ---- tray module and its menu (data and D-Bus side: tray.h) ---- */
+
+static struct wl_event_source *bar_tray_anim_src;
+static uint64_t bar_tray_anim_start;
+static double bar_tray_from;
+static struct wlr_scene_buffer *tray_popup;
+static Monitor *tray_popup_mon;
+static int tray_popup_ax, tray_popup_ay;  /* anchor: under the clicked icon */
+static int tray_popup_px, tray_popup_py, tray_popup_w, tray_popup_h;
+static int tray_popup_hover = -1;
+#define TRAY_MAXROWS 64
+static int tray_rows_n, tray_row_y[TRAY_MAXROWS + 1], tray_row_idx[TRAY_MAXROWS];
+
+static int
+bar_tray_iconpx(void)
+{
+	return tray_icon_px > 0 ? tray_icon_px : 16;
+}
+
+static int
+bar_tray_arroww(void)
+{
+	const char *a = bar_tray_open ? bartrayhide : bartrayshow;
+	return bar_textw(a, strlen(a)) + bar_lrpad;
+}
+
+static int
+bar_tray_len(void)
+{
+	int n = tray_count();
+	if (!n || !bar_font)
+		return 0;
+	return bar_tray_arroww() + (int)lround(bar_tray_t * n * (bar_tray_iconpx() + bartraygap));
+}
+
+static void
+bar_tray_draw(BarCtx *k, int start, int len)
+{
+	Monitor *m = k->m;
+	int icon = bar_tray_iconpx(), pitch = icon + bartraygap, aw = bar_tray_arroww();
+	int tx, ty, tw, th, i = 0;
+	TrayItem *it;
+
+	bar_draw_text(k, start, aw, bar_tray_open ? bartrayhide : bartrayshow, SchemeStatus);
+	m->tray_x = start;
+	m->tray_w = len;
+	m->tray_ix = start + aw;
+	m->tray_pitch = pitch;
+	bar_tile(k, start, len, k->cs, k->ct, &tx, &ty, &tw, &th);
+	wl_list_for_each(it, &tray_items, link) {
+		int x = start + aw + i * pitch + bartraygap / 2, y = ty + (th - icon) / 2;
+		i++;
+		if (x + icon > start + len)
+			break;  /* still sliding out */
+		if (it->argb) {
+			pixman_image_t *src = pixman_image_create_bits(PIXMAN_a8r8g8b8,
+					it->iw, it->ih, it->argb, it->iw * 4);
+			pixman_transform_t tr;
+			if (!src)
+				continue;
+			pixman_transform_init_scale(&tr, pixman_double_to_fixed((double)it->iw / icon),
+					pixman_double_to_fixed((double)it->ih / icon));
+			pixman_image_set_transform(src, &tr);
+			pixman_image_set_filter(src, PIXMAN_FILTER_GOOD, NULL, 0);
+			pixman_image_composite32(PIXMAN_OP_OVER, src, NULL, k->img,
+					0, 0, 0, 0, x, y, icon, icon);
+			pixman_image_unref(src);
+		} else {
+			/* no usable icon (e.g. SVG only): first letter on a rounded square */
+			char l[2] = { '?', 0 };
+			const char *t = it->title ? it->title : it->icon_name;
+			if (t && t[0] && (unsigned char)t[0] < 0x80)
+				l[0] = (char)toupper((unsigned char)t[0]);
+			bar_rrect(k->img, x, y, icon, icon, icon / 4, barcolors[SchemeSel][1]);
+			bar_run(k->img, x + (icon - bar_textw(l, 1)) / 2, y, icon, l, 1,
+					barcolors[SchemeSel][0], -1);
+		}
+	}
+}
+
+static int
+bar_tray_anim_cb(void *data)
+{
+	double target = bar_tray_open ? 1.0 : 0.0;
+	double t = bartrayanimdur > 0
+		? (double)(bar_now_ms() - bar_tray_anim_start) / (bartrayanimdur * 1000.0) : 1.0;
+
+	if (t >= 1.0)
+		bar_tray_t = target;
+	else
+		bar_tray_t = bar_tray_from + (target - bar_tray_from) * bezier_ease(bartraybezier, t);
+	bar_draw_all();
+	if (bar_tray_t != target)
+		wl_event_source_timer_update(bar_tray_anim_src, 10);
+	return 0;
+}
+
+static void
+bar_tray_toggle(void)
+{
+	bar_tray_open = !bar_tray_open;
+	bar_tray_from = bar_tray_t;
+	bar_tray_anim_start = bar_now_ms();
+	if (!bar_tray_anim_src)
+		bar_tray_anim_src = wl_event_loop_add_timer(event_loop, bar_tray_anim_cb, NULL);
+	bar_tray_anim_cb(NULL);
+}
+
+static void
+bar_tray_click(Monitor *m, int u, unsigned int button)
+{
+	TrayItem *it;
+	int idx, sx, sy;
+
+	if (u < m->tray_ix) {
+		if (button == BTN_LEFT)
+			bar_tray_toggle();
+		return;
+	}
+	idx = (u - m->tray_ix) / (m->tray_pitch > 0 ? m->tray_pitch : 1);
+	if (!(it = tray_nth(idx)))
+		return;
+	/* screen point under the icon, for menus the apps draw themselves */
+	sx = m->bar_area.x + m->tray_ix + idx * m->tray_pitch;
+	sy = m->bar_pos == BarBottom ? m->bar_area.y : m->bar_area.y + m->bar_area.height;
+	if (button == BTN_RIGHT || (button == BTN_LEFT && it->item_is_menu)) {
+		tray_popup_mon = m;
+		tray_popup_ax = sx;
+		tray_popup_ay = sy;
+		if (!tray_menu_open(idx))
+			tray_context_menu(idx, sx, sy);
+	} else if (button == BTN_LEFT) {
+		tray_activate(idx, 0, sx, sy);
+	} else if (button == BTN_MIDDLE) {
+		tray_activate(idx, 1, sx, sy);
+	} else if (button == SCROLL_UP || button == SCROLL_DOWN) {
+		tray_scroll(idx, button == SCROLL_UP ? -1 : 1);
+	}
+}
+
+static void
+tray_changed(void)
+{
+	bar_draw_all();
+}
+
+static void
+bar_tray_row_text(int k, char *out, size_t n)
+{
+	int i = tray_row_idx[k];
+	if (i == -2) {
+		snprintf(out, n, "%s back", bartrayshow);
+		return;
+	}
+	snprintf(out, n, "%s%s%s",
+			tray_menu[i].toggle ? (tray_menu[i].checked ? "\xe2\x9c\x93 " : "   ") : "",
+			tray_menu[i].label,
+			tray_menu[i].submenu ? "  \xe2\x80\xba" : "");
+}
+
+static void
+bar_tray_popup_draw(void)
+{
+	Monitor *m = tray_popup_mon;
+	BarBuffer *bb;
+	pixman_image_t *img;
+	char txt[160];
+	int i, k, w = 0, h, y, fh, rowh, seph = 9, padx = 12, pady = 4;
+	uint32_t bg, fg, selbg, selfg, mut;
+
+	if (!tray_menu_n || !m || !bar_font) {
+		if (tray_popup)
+			wlr_scene_node_set_enabled(&tray_popup->node, 0);
+		tray_popup_hover = -1;
+		tray_popup_hit = 0;
+		return;
+	}
+	fh = bar_font->height;
+	rowh = fh + 8;
+	tray_rows_n = 0;
+	if (tray_menu_level >= 0)
+		tray_row_idx[tray_rows_n++] = -2;
+	for (i = 0; i < tray_menu_n && tray_rows_n < TRAY_MAXROWS; i++)
+		if (tray_menu[i].parent == tray_menu_level)
+			tray_row_idx[tray_rows_n++] = i;
+	if (!tray_rows_n)
+		return;
+	y = pady;
+	for (k = 0; k < tray_rows_n; k++) {
+		int sep = tray_row_idx[k] >= 0 && tray_menu[tray_row_idx[k]].separator;
+		tray_row_y[k] = y;
+		y += sep ? seph : rowh;
+		if (!sep) {
+			bar_tray_row_text(k, txt, sizeof(txt));
+			w = bar_imax(w, bar_textw(txt, strlen(txt)));
+		}
+	}
+	tray_row_y[tray_rows_n] = y;
+	h = y + pady;
+	w = bar_imax(140, w + 2 * padx);
+	if (!(bb = bar_newbuf(w, h, 0)))
+		return;
+	img = bb->image;
+	bg = barcolors[SchemeBar][1] | 0xff;
+	fg = barcolors[SchemeBar][0];
+	selbg = barcolors[SchemeSel][1] | 0xff;
+	selfg = barcolors[SchemeSel][0];
+	mut = barcolors[SchemeMuted][0];
+	bar_rect(img, 0, 0, w, h, selbg);  /* 1 px frame */
+	bar_rect(img, 1, 1, w - 2, h - 2, bg);
+	for (k = 0; k < tray_rows_n; k++) {
+		int i2 = tray_row_idx[k], ry = tray_row_y[k];
+		int en = i2 == -2 || tray_menu[i2].enabled;
+		if (i2 >= 0 && tray_menu[i2].separator) {
+			bar_rect(img, padx / 2, ry + seph / 2, w - padx, 1, mut);
+			continue;
+		}
+		if (k == tray_popup_hover && en)
+			bar_rect(img, 2, ry, w - 4, rowh, selbg);
+		bar_tray_row_text(k, txt, sizeof(txt));
+		bar_run(img, padx, ry, rowh, txt, strlen(txt),
+				!en ? mut : k == tray_popup_hover ? selfg : fg, w - padx / 2);
+	}
+	if (!tray_popup)
+		tray_popup = wlr_scene_buffer_create(layers[LyrOverlay], NULL);
+	if (!tray_popup) {
+		wlr_buffer_drop(&bb->base);
+		return;
+	}
+	wlr_scene_buffer_set_buffer(tray_popup, &bb->base);
+	wlr_buffer_drop(&bb->base);
+	tray_popup_w = w;
+	tray_popup_h = h;
+	tray_popup_px = bar_imax(m->m.x, bar_imin(tray_popup_ax, m->m.x + m->m.width - w));
+	tray_popup_py = m->bar_pos == BarBottom ? tray_popup_ay - h : tray_popup_ay;
+	wlr_scene_node_set_position(&tray_popup->node, tray_popup_px, tray_popup_py);
+	wlr_scene_node_raise_to_top(&tray_popup->node);
+	wlr_scene_node_set_enabled(&tray_popup->node, 1);
+}
+
+static void
+tray_menu_changed(void)
+{
+	tray_popup_hover = -1;
+	bar_tray_popup_draw();
+}
+
+/* called by xytonode: is (x, y) on the open menu? keeps the hover row */
+static int
+bar_tray_popup_hit(double x, double y)
+{
+	int k, hv = -1, ry = (int)y - tray_popup_py;
+
+	tray_popup_hit = tray_menu_n && tray_popup && tray_popup->node.enabled
+		&& x >= tray_popup_px && x < tray_popup_px + tray_popup_w
+		&& y >= tray_popup_py && y < tray_popup_py + tray_popup_h;
+	if (tray_popup_hit)
+		for (k = 0; k < tray_rows_n; k++)
+			if (ry >= tray_row_y[k] && ry < tray_row_y[k + 1]) {
+				hv = k;
+				break;
+			}
+	if (hv != tray_popup_hover && tray_menu_n) {
+		tray_popup_hover = hv;
+		bar_tray_popup_draw();
+	}
+	return tray_popup_hit;
+}
+
+static void
+bar_tray_popup_click(void)
+{
+	int k = tray_popup_hover, i;
+	if (k < 0 || k >= tray_rows_n)
+		return;
+	i = tray_row_idx[k];
+	if (i == -2) {  /* back to the parent menu */
+		tray_menu_level = tray_menu_level >= 0 ? tray_menu[tray_menu_level].parent : -1;
+		tray_menu_changed();
+	} else
+		tray_menu_activate(i);
+}
+
+static void
+bar_tray_mon_gone(Monitor *m)
+{
+	if (tray_popup_mon == m) {
+		tray_popup_mon = NULL;
+		if (tray_menu_n)
+			tray_menu_close();
+	}
+}
+
+static void
+bar_tray_cleanup(void)
+{
+	if (bar_tray_anim_src)
+		wl_event_source_remove(bar_tray_anim_src);
+	bar_tray_anim_src = NULL;
+	if (tray_popup)
+		wlr_scene_node_destroy(&tray_popup->node);
+	tray_popup = NULL;
+	tray_cleanup();
+}
+
 static void
 bar_init(void)
 {
@@ -2153,12 +2484,18 @@ bar_init(void)
 		bar_kick_src = wl_event_loop_add_timer(event_loop, bar_kick_tick, NULL);
 	if (kb_group)
 		bar_layout_update(&kb_group->wlr_group->keyboard);
+	if (bar_modused[BarModTray]) {
+		tray_icon_px = bartrayiconpx > 0 ? bartrayiconpx : bar_font->height;
+		tray_init(event_loop);
+	}
 }
 
 static void
 bar_cleanup(void)
 {
 	int i;
+
+	bar_tray_cleanup();
 
 	if (bar_stdin_src)
 		wl_event_source_remove(bar_stdin_src);

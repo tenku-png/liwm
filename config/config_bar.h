@@ -16,7 +16,7 @@ enum { BarAlignStart, BarAlignCenter, BarAlignEnd };
 enum { BarModTags, BarModStatus, BarModSpacer,
        BarModVolume, BarModBrightness, BarModBattery,
        BarModCpu, BarModRam, BarModTemp, BarModLayout,
-       BarModMedia, BarModCount };  /* BarModMedia is drawn centered (see barmedia) */
+       BarModMedia, BarModTray, BarModCount };  /* BarModMedia is drawn centered (see barmedia); BarModTray = system tray */
 /* Decoration of active tags: none, line on the inner edge, line on the outer edge, both edges, or a full rectangle border. */
 enum { BarDecoNone, BarDecoInner, BarDecoOuter, BarDecoBoth, BarDecoBorder };
 /* Indicator for tags that contain windows: none, dwm-style square, dot, or line. */
@@ -56,7 +56,7 @@ static const int barvpad         = 5;  /* vertical padding above and below text 
 static const int barlrpad        = 6;  /* horizontal padding around text; 0 = use the font height */
 
 /* --- Modules and separators --- */
-static const int barorder[]      = { BarModTags, BarModSpacer, BarModLayout, BarModVolume, BarModBrightness, BarModCpu, BarModRam, BarModStatus };  /* modules from start to end of the bar */
+static const int barorder[]      = { BarModTags, BarModSpacer, BarModTray, BarModLayout, BarModVolume, BarModBrightness, BarModCpu, BarModRam, BarModStatus };  /* modules from start to end of the bar */
 static const int barmodulegap    = 14;  /* gap between modules */
 static const int barsepwidth     = 0;  /* thickness of the separator line between modules; 0 = none (needs barmodulegap > 0) */
 static const int barseppct       = 60;  /* separator line length as a percentage of the bar thickness (max 100) */
@@ -89,6 +89,18 @@ static const double barhidedur      = 0.35;  /* hide animation length */
 static const double barshowdur      = 0.35;  /* show animation length */
 static const char *barhidebezier    = ".28,.67,.28,1.04";  /* hide easing curve */
 static const char *barshowbezier    = ".28,.67,.28,1.04";  /* show easing curve */
+
+/* --- Tray (apps in the background: Steam, Telegram, Discord, ...) ---
+ * Left click an icon = open the app, right click = its menu (Quit etc.),
+ * middle click = secondary action, scroll = app-specific. The arrow slides
+ * the icons in and out. Horizontal bars only. */
+static const int bartrayopen        = 0;  /* 1 = icons shown at start, 0 = hidden behind the arrow */
+static const int bartrayiconpx      = 0;  /* icon size in pixels; 0 = font height */
+static const int bartraygap         = 6;  /* space around each icon */
+static const double bartrayanimdur  = 0.25;  /* slide animation length (0 = instant) */
+static const char *bartraybezier    = ".25,.8,.3,1";  /* slide easing curve */
+static const char *bartrayshow      = "\xe2\x80\xb9";  /* "<" arrow while hidden: click to slide the icons out */
+static const char *bartrayhide      = "\xe2\x80\xba";  /* ">" arrow while shown: click to hide them */
 
 /* --- Status modules and data sources --- */
 static const int barstatusallmons = 1;  /* 1 = show status modules on every monitor, 0 = only on the focused one */

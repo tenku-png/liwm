@@ -12,14 +12,14 @@ LILITHDEVCFLAGS = -g -Wpedantic -Wall -Wextra -Wdeclaration-after-statement \
 	-Werror=implicit -Werror=return-type -Werror=incompatible-pointer-types \
 	-Wfloat-conversion
 
-PKGS      = wayland-server xkbcommon libinput libdrm fcft pixman-1 $(XLIBS)
+PKGS      = wayland-server xkbcommon libinput libdrm fcft pixman-1 dbus-1 $(XLIBS)
 LILITHCFLAGS = `$(PKG_CONFIG) --cflags $(PKGS)` $(WLR_INCS) $(LILITHCPPFLAGS) $(LILITHDEVCFLAGS) $(CFLAGS)
 LDLIBS    = `$(PKG_CONFIG) --libs $(PKGS)` $(WLR_LIBS) -lm $(LIBS)
 
 all: lilith
 lilith: lilith.o util.o
 	$(CC) lilith.o util.o $(LILITHCFLAGS) $(LDFLAGS) $(LDLIBS) -o $@
-lilith.o: lilith.c client.h wallpaper.h bar.h stb_image.h config.h config.mk \
+lilith.o: lilith.c client.h wallpaper.h tray.h bar.h stb_image.h config.h config.mk \
 	config/config_appearance.h config/config_animation.h config/config_bar.h \
 	config/config_input.h config/config_keys.h cursor-shape-v1-protocol.h \
 	pointer-constraints-unstable-v1-protocol.h wlr-layer-shell-unstable-v1-protocol.h \

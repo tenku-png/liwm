@@ -151,8 +151,8 @@ static const Key keys[] = {
 	{ MODKEY|SHIFT,              XKB_KEY_greater,     tagmon,           {.i = WLR_DIRECTION_RIGHT} },
 
 	/* --- Canvas (lilith-specific) --- */
-	{ MODKEY,                    XKB_KEY_z,           zoomfit,          {0} },  /* Super+Z: zoom out to fit all windows */
-	{ MODKEY|SHIFT,              XKB_KEY_Z,           zoomreset,        {0} },  /* Super+Shift+Z: back to 100% (sharp) */
+	{ MODKEY,                    XKB_KEY_z,           zoomhome,         {0} },  /* Super+Z: windows to the middle of the screen at 100% */
+	{ MODKEY|SHIFT,              XKB_KEY_Z,           zoomfit,          {0} },  /* Super+Shift+Z: zoom out to see all windows */
 	{ MODKEY,                    XKB_KEY_BackSpace,   zoomreset,        {0} },  /* Super+Backspace: back to 100% */
 	{ MODKEY,                    XKB_KEY_equal,       zoom,             {.f = +0.15f} },  /* Super+=: zoom in */
 	{ MODKEY,                    XKB_KEY_minus,       zoom,             {.f = -0.15f} },  /* Super+-: zoom out */

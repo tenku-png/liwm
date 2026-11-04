@@ -265,6 +265,7 @@ struct Monitor {
 	double wp_k, wp_ox, wp_oy;
 	struct wlr_scene_buffer *bar_scene;
 	char bri_txt[192];  /* DDC/CI brightness text of this monitor (bar) */
+	int tray_x, tray_w, tray_ix, tray_pitch;  /* tray module span, first icon, icon pitch */
 	int bri_pct;
 	struct wlr_box bar_area;
 	int showbar;
@@ -472,6 +473,7 @@ static void resizewinbykeys(const Arg *arg);
 static void movecanvasmouse(const Arg *arg);
 static void centerwindow(const Arg *arg);
 static void togglemaximize(const Arg *arg);
+static void zoomhome(const Arg *arg);
 static void toggletile(const Arg *arg);
 static void tile(Monitor *m);
 static void geoanim_step(Monitor *m);
@@ -697,6 +699,7 @@ static struct wlr_scene_rect *spawnregion_border[8] = {NULL, NULL, NULL, NULL, N
 
 #include "client.h"
 #include "wallpaper.h"
+#include "tray.h"
 #include "bar.h"
 
 void
@@ -914,6 +917,12 @@ buttonpress(struct wl_listener *listener, void *data)
 		if (locked)
 			break;
 
+		if (tray_popup_hit) {
+			bar_tray_popup_click();
+			return;
+		}
+		if (tray_menu_n)  /* click anywhere else closes the tray menu */
+			tray_menu_close();
 		if (barmon) {
 			keyboard = wlr_seat_get_keyboard(seat);
 			mods = keyboard ? wlr_keyboard_get_modifiers(keyboard) : 0;
@@ -4896,6 +4905,12 @@ xytonode(double x, double y, struct wlr_surface **psurface,
 	int layer;
 
 	bar_hover = NULL;
+	if (!locked && bar_tray_popup_hit(x, y)) {  /* tray menu is on top */
+		if (psurface) *psurface = NULL;
+		if (pc) *pc = NULL;
+		if (pl) *pl = NULL;
+		return;
+	}
 	for (layer = NUM_LAYERS - 1; !surface && layer >= 0; layer--) {
 		if (!(node = wlr_scene_node_at(&layers[layer]->node, x, y, nx, ny)))
 			continue;
@@ -5485,6 +5500,42 @@ toggletile(const Arg *arg)
 		animresize(c, g);
 	}
 	arrange(m);
+}
+
+/* Super+Z: bring the windows of this tag to the middle of the screen and
+ * go back to 100% zoom (both animated). */
+void
+zoomhome(const Arg *arg)
+{
+	Monitor *m = selmon;
+	Client *c;
+	int have = 0, x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+
+	if (!m)
+		return;
+	if (!tiledon(m)) {
+		wl_list_for_each(c, &clients, link) {
+			struct wlr_box g;
+			if (!VISIBLEON(c, m) || c->isfullscreen)
+				continue;
+			g = c->geoanim ? c->ga_to : c->geom;
+			if (!have) {
+				x1 = g.x; y1 = g.y;
+				x2 = g.x + g.width; y2 = g.y + g.height;
+				have = 1;
+			} else {
+				x1 = MIN(x1, g.x); y1 = MIN(y1, g.y);
+				x2 = MAX(x2, g.x + g.width); y2 = MAX(y2, g.y + g.height);
+			}
+		}
+		if (have) {
+			int dx = (m->w.x + m->w.width / 2) - (x1 + x2) / 2;
+			int dy = (m->w.y + m->w.height / 2) - (y1 + y2) / 2;
+			if (dx || dy)
+				canvas_shift(m, dx, dy, 1);
+		}
+	}
+	zoomreset(NULL);
 }
 
 void
