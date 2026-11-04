@@ -4931,19 +4931,35 @@ xytonode(double x, double y, struct wlr_surface **psurface,
 		Monitor *m = c->mon;
 		double s = m->zoom_scale;
 		if (surface == client_surface(c)) {
-			int scene_x = (int)llround((double)c->geom.x * s + m->zoom_pan_x);
-			int scene_y = (int)llround((double)c->geom.y * s + m->zoom_pan_y);
-			int bw_s    = MAX(1, (int)llround((double)c->bw * s));
+			/* invert what is drawn: zoom_scale_buffers stretches the
+			 * clipped part of the surface (client_get_clip: it starts at
+			 * the xdg geometry offset, i.e. after client-side shadows) over
+			 * the inner box at the node's real position. Without the clip
+			 * offset clicks landed above/left of the cursor on GTK apps. */
+			int abs_x = 0, abs_y = 0;
+			int bw_s    = (int)llround((double)c->bw * s);
 			int gw_s    = (int)llround((double)c->geom.width  * s);
 			int gh_s    = (int)llround((double)c->geom.height * s);
 			int inner_w = MAX(1, gw_s - 2 * bw_s);
 			int inner_h = MAX(1, gh_s - 2 * bw_s);
-			double cw   = (double)MAX(1, c->geom.width  - 2 * c->bw);
-			double ch   = (double)MAX(1, c->geom.height - 2 * c->bw);
-			double ox   = (double)(scene_x + bw_s);
-			double oy   = (double)(scene_y + bw_s);
-			*nx = (x - ox) * cw / (double)inner_w;
-			*ny = (y - oy) * ch / (double)inner_h;
+			struct wlr_box clip;
+			double lw = surface->current.width, lh = surface->current.height;
+			double cropw, croph;
+			client_get_clip(c, &clip);
+			if (surface->current.viewport.has_dst) {
+				lw = surface->current.viewport.dst_width;
+				lh = surface->current.viewport.dst_height;
+			}
+			cropw = MIN(lw - clip.x, (double)clip.width);
+			croph = MIN(lh - clip.y, (double)clip.height);
+			if (cropw <= 0 || croph <= 0) {
+				cropw = MAX(1, c->geom.width  - 2 * c->bw);
+				croph = MAX(1, c->geom.height - 2 * c->bw);
+			}
+			if (node && wlr_scene_node_coords(node, &abs_x, &abs_y)) {
+				*nx = clip.x + (x - abs_x) * cropw / (double)inner_w;
+				*ny = clip.y + (y - abs_y) * croph / (double)inner_h;
+			}
 		} else {
 			int abs_nx = 0, abs_ny = 0;
 			if (node && wlr_scene_node_coords(node, &abs_nx, &abs_ny)) {
