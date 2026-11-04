@@ -54,6 +54,7 @@
 /* --- Canvas zoom --- */
 #define ZOOMMIN 0.1  /* smallest allowed zoom factor (0.3 = 30%); also used to warn when the wallpaper is too small */
 #define ZOOMMAX 4  /* largest allowed zoom factor (1 = 100%) */
+#define zoomnearest 0  /* scaling of windows while zoomed: 0 = smooth (bilinear), 1 = sharp pixels (nearest) */
 #define animatezoom 1.5  /* non-zero = animate zoom changes, 0 = instant (only used as an on/off switch) */
 #define zoomduration 0.25  /* length of the zoom animation */
 #define zoombezier ".2,.8,.3,1"  /* easing curve (y > 1 gives a slight overshoot) */
