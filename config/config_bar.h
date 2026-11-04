@@ -98,7 +98,7 @@ static const char *barclockfmt   = "%a %H:%M";  /* strftime() format of the buil
 /* Polling intervals and device selection. */
 static const int barsysinterval  = 2000;  /* ms between CPU/RAM/temperature/battery/brightness updates */
 static const int barvolinterval  = 5000;  /* ms between volume refreshes (checked on the system tick) */
-static const int barkickms       = 150;  /* ms after a barspawn() command before modules are refreshed, so volume and brightness react to key presses */
+static const int barkickms       = 100;  /* ms after a barspawn() command before modules are refreshed, so volume and brightness react to key presses */
 static const char *barvolcmd[]   = { "wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@", NULL };  /* command whose output is parsed for the volume */
 static const char *barbatname    = "";  /* battery under /sys/class/power_supply (e.g. "BAT0"); "" = first found */
 static const char *barblname     = "";

@@ -158,6 +158,9 @@ typedef struct {
 	uint64_t inertia_ms;
 	int opening;
 	int was_vis;
+	struct wlr_box untiled, maxprev;  /* canvas geometry before tiling / maximize */
+	int hasuntiled, ismax;
+	int untiled_cx, untiled_cy, max_cx, max_cy;  /* canvas offset at that time */
 	struct wlr_scene_tree *open_tree;
 } Client;
 
@@ -233,6 +236,7 @@ struct Monitor {
 	int gamma_lut_changed;
 	int asleep;
 	CanvasOffset *canvas;
+	uint32_t tiledtags;  /* tags shown tiled (Super+Q) */
 	double zoom_scale;
 	double zoom_target;
 	double zoom_pan_x, zoom_pan_y;
@@ -461,6 +465,11 @@ static void movewinbykeys(const Arg *arg);
 static void resizewinbykeys(const Arg *arg);
 static void movecanvasmouse(const Arg *arg);
 static void centerwindow(const Arg *arg);
+static void togglemaximize(const Arg *arg);
+static void toggletile(const Arg *arg);
+static void tile(Monitor *m);
+static int tiledon(Monitor *m);
+static int tileswap(Client *c, int dir);
 static void bringintoview(Client *c);
 static void save_canvas_positions(Monitor *m);
 static void restore_canvas_positions(Monitor *m);
@@ -742,6 +751,9 @@ arrange(Monitor *m)
 			client_set_suspended(c, !VISIBLEON(c, m));
 		}
 	}
+
+	if (tiledon(m))
+		tile(m);
 
 	wlr_scene_node_set_enabled(&m->fullscreen_bg->node,
 			(c = focustop(m)) && c->isfullscreen);
@@ -2975,6 +2987,8 @@ unset_fullscreen:
 		int tagidx = getcurrenttag(m);
 		c->home_cx = m->canvas[tagidx].cx;
 		c->home_cy = m->canvas[tagidx].cy;
+		if (tiledon(m) && c->mon == m)
+			tile(m);
 	}
 	openanim_start(c);
 
@@ -4988,6 +5002,8 @@ movewinbykeys(const Arg *arg)
 
 	if (!c || !c->mon || c->isfullscreen || c->isfakefullscreen)
 		return;
+	if (tileswap(c, arg->i))  /* tiled tag: swap with the neighbour instead */
+		return;
 	if (!c->isfloating)
 		setfloating(c, 1);
 
@@ -5101,6 +5117,205 @@ restore_canvas_positions(Monitor *m)
 	}
 }
 
+/* ---- Tiling on top of the canvas (Super+Q) and maximize (Super+D) ----
+ * A tiled tag lays its windows out dwindle-style inside the work area at
+ * zoom 1. Their canvas geometry is saved and restored when tiling is turned
+ * off. Order = window age (oldest = largest tile); Super+Shift+arrows swaps. */
+
+static void
+zoom_reset_now(Monitor *m)
+{
+	m->zoom_scale = m->zoom_target = 1.0;
+	m->zoom_pan_x = m->zoom_pan_y = 0.0;
+	m->zoom_anim_t = 1.0;
+	m->zoom_popups_dirty = 1;
+}
+
+static int
+tiledon(Monitor *m)
+{
+	return m && (m->tagset[m->seltags] & m->tiledtags);
+}
+
+static int
+tileable(Client *c, Monitor *m)
+{
+	return VISIBLEON(c, m) && !c->isfullscreen && !c->isfakefullscreen
+		&& !c->ismax && !client_is_float_type(c)
+		&& client_surface(c)->mapped;
+}
+
+static struct wlr_box
+workbox(Monitor *m)
+{
+	struct wlr_box b = m->w;
+	b.x += TILE_GAP;
+	b.y += TILE_GAP;
+	b.width  -= 2 * TILE_GAP;
+	b.height -= 2 * TILE_GAP;
+	return b;
+}
+
+void
+tile(Monitor *m)
+{
+	static int busy;
+	struct wlr_box area, box;
+	Client *c;
+	int n = 0, i = 0, tagidx;
+
+	if (busy || !m || !m->wlr_output->enabled)
+		return;
+	wl_list_for_each(c, &clients, link)
+		if (tileable(c, m))
+			n++;
+	if (!n)
+		return;
+	busy = 1;
+	tagidx = getcurrenttag(m);
+	if (fabs(m->zoom_scale - 1.0) >= 1e-9 || fabs(m->zoom_target - 1.0) >= 1e-9)
+		zoom_reset_now(m);
+	area = workbox(m);
+	wl_list_for_each_reverse(c, &clients, link) {
+		if (!tileable(c, m))
+			continue;
+		box = area;
+		if (++i < n) {
+			if (area.width >= area.height) {
+				box.width = (area.width - TILE_GAP) / 2;
+				area.x += box.width + TILE_GAP;
+				area.width -= box.width + TILE_GAP;
+			} else {
+				box.height = (area.height - TILE_GAP) / 2;
+				area.y += box.height + TILE_GAP;
+				area.height -= box.height + TILE_GAP;
+			}
+		}
+		if (!c->hasuntiled) {
+			c->untiled = c->geom;
+			c->untiled_cx = m->canvas[tagidx].cx;
+			c->untiled_cy = m->canvas[tagidx].cy;
+			c->hasuntiled = 1;
+		}
+		if (memcmp(&box, &c->geom, sizeof(box)))
+			resize(c, box, 0);
+	}
+	zoom_apply(m);
+	busy = 0;
+}
+
+void
+toggletile(const Arg *arg)
+{
+	Monitor *m = selmon;
+	Client *c;
+	uint32_t tags;
+	int tagidx;
+
+	if (!m)
+		return;
+	tags = m->tagset[m->seltags];
+	if (!(m->tiledtags & tags)) {
+		m->tiledtags |= tags;
+		arrange(m);
+		return;
+	}
+	m->tiledtags &= ~tags;
+	tagidx = getcurrenttag(m);
+	wl_list_for_each(c, &clients, link) {
+		struct wlr_box g;
+		if (!VISIBLEON(c, m) || !c->hasuntiled)
+			continue;
+		c->hasuntiled = 0;
+		if (c->isfullscreen || c->ismax)
+			continue;
+		/* follow canvas panning done while tiled */
+		g = c->untiled;
+		g.x += m->canvas[tagidx].cx - c->untiled_cx;
+		g.y += m->canvas[tagidx].cy - c->untiled_cy;
+		resize(c, g, 0);
+	}
+	arrange(m);
+}
+
+void
+togglemaximize(const Arg *arg)
+{
+	Client *c = focustop(selmon);
+	Monitor *m;
+	int tagidx;
+
+	if (!c || !c->mon || c->isfullscreen || c->isfakefullscreen)
+		return;
+	m = c->mon;
+	tagidx = getcurrenttag(m);
+	if (c->ismax) {
+		struct wlr_box g = c->maxprev;
+		c->ismax = 0;
+		g.x += m->canvas[tagidx].cx - c->max_cx;
+		g.y += m->canvas[tagidx].cy - c->max_cy;
+		resize(c, g, 0);
+	} else {
+		c->maxprev = c->geom;
+		c->max_cx = m->canvas[tagidx].cx;
+		c->max_cy = m->canvas[tagidx].cy;
+		c->ismax = 1;
+		zoom_reset_now(m);
+		resize(c, workbox(m), 0);
+		wlr_scene_node_raise_to_top(&c->scene->node);
+	}
+	arrange(m);
+}
+
+/* dir: 0 = left, 1 = right, 2 = up, 3 = down (same as movewinbykeys) */
+int
+tileswap(Client *c, int dir)
+{
+	Monitor *m = c->mon;
+	Client *o, *best = NULL;
+	struct wl_list *a, *b, *ap;
+	long cx, cy, ox, oy, d, bestd = 0;
+
+	if (!tiledon(m) || !tileable(c, m))
+		return 0;
+	cx = c->geom.x + c->geom.width / 2;
+	cy = c->geom.y + c->geom.height / 2;
+	wl_list_for_each(o, &clients, link) {
+		if (o == c || !tileable(o, m))
+			continue;
+		ox = o->geom.x + o->geom.width / 2 - cx;
+		oy = o->geom.y + o->geom.height / 2 - cy;
+		if ((dir == 0 && ox >= 0) || (dir == 1 && ox <= 0)
+				|| (dir == 2 && oy >= 0) || (dir == 3 && oy <= 0))
+			continue;
+		d = ox * ox + oy * oy;
+		if (!best || d < bestd) {
+			best = o;
+			bestd = d;
+		}
+	}
+	if (!best)
+		return 1;
+	/* swap the two entries of the clients list (= tile order) */
+	a = &c->link;
+	b = &best->link;
+	if (a->next == b) {
+		wl_list_remove(a);
+		wl_list_insert(b, a);
+	} else if (b->next == a) {
+		wl_list_remove(b);
+		wl_list_insert(a, b);
+	} else {
+		ap = a->prev;
+		wl_list_remove(a);
+		wl_list_insert(b, a);
+		wl_list_remove(b);
+		wl_list_insert(ap, b);
+	}
+	arrange(m);
+	return 1;
+}
+
 void
 centerwindow(const Arg *arg)
 {
@@ -5109,7 +5324,7 @@ centerwindow(const Arg *arg)
 	int tagidx, screen_cx, screen_cy, win_cx, win_cy, dx, dy;
 	Client *c = (arg && arg->v) ? (Client *)arg->v : focustop(selmon);
 
-	if (!c || !c->mon)
+	if (!c || !c->mon || tiledon(c->mon))  /* tiled: windows are already on screen */
 		return;
 
 	m = c->mon;

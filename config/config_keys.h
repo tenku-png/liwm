@@ -4,7 +4,8 @@
  * Note: for keys, the first matching entry in keys[] wins and stops the search.
  *
  * Layout ported from the author's Hyprland config (keybinding.lua):
- * Super+Return/C = terminal, Super+Q/X = close, Super+arrows = focus,
+ * Super+Return/C = terminal, Super+X = close, Super+Q = tiling on/off,
+ * Super+D = maximize, Super+arrows = focus,
  * Super+S = scratchpad tag, middle-drag moves windows, grim/slurp screenshots.
  */
 
@@ -74,10 +75,11 @@ static const Key keys[] = {
 	{ 0,                         XKB_KEY_F2,          spawn,            SHCMD("python3 ~/.config/hypr/scripts/autoclicker.py stop") },  /* F2: autoclicker stop */
 
 	/* --- Windows --- */
-	{ MODKEY,                    XKB_KEY_q,           killclient,       {0} },  /* Super+Q: close */
+	{ MODKEY,                    XKB_KEY_q,           toggletile,       {0} },  /* Super+Q: tile the windows of this tag / back to the canvas */
 	{ MODKEY,                    XKB_KEY_x,           killclient,       {0} },  /* Super+X: close */
 	{ MODKEY,                    XKB_KEY_f,           togglefullscreen, {0} },  /* Super+F: fullscreen */
-	{ MODKEY,                    XKB_KEY_d,           centerwindow,     {0} },  /* Super+D: center window (no maximize on a canvas) */
+	{ MODKEY,                    XKB_KEY_d,           togglemaximize,   {0} },  /* Super+D: maximize to the work area (not fullscreen) / restore */
+	{ MODKEY|SHIFT,              XKB_KEY_D,           centerwindow,     {0} },  /* Super+Shift+D: center window */
 	{ MODKEY,                    XKB_KEY_p,           tag,              {.ui = ~0} },  /* Super+P: pin = show window on all tags */
 	{ MODKEY,                    XKB_KEY_Tab,         focusstackcenter, {.i = +1} },  /* Super+Tab: next window, centered */
 
@@ -87,7 +89,7 @@ static const Key keys[] = {
 	{ MODKEY,                    XKB_KEY_Down,        focusdir,         {.ui = 2} },
 	{ MODKEY,                    XKB_KEY_Right,       focusstackcenter, {.i = +1} },  /* Super+Right: next window, centered */
 
-	/* Move window (0 = left, 1 = right, 2 = up, 3 = down) */
+	/* Move window (0 = left, 1 = right, 2 = up, 3 = down); on a tiled tag: swap with the neighbour */
 	{ MODKEY|SHIFT,              XKB_KEY_Left,        movewinbykeys,    {.i = 0} },
 	{ MODKEY|SHIFT,              XKB_KEY_Right,       movewinbykeys,    {.i = 1} },
 	{ MODKEY|SHIFT,              XKB_KEY_Up,          movewinbykeys,    {.i = 2} },
@@ -212,9 +214,10 @@ static const BarAction baractions[] = {
 	{ BarModVolume,     SCROLL_UP,   "wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SINK@ 2%+" },
 	{ BarModVolume,     SCROLL_DOWN, "wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%-" },
 	{ BarModVolume,     BTN_RIGHT,   "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle" },
-	/* brightnessctl for laptop backlights, ddcutil (DDC/CI) for desktop monitors */
-	{ BarModBrightness, SCROLL_UP,   "brightnessctl -q set 5%+ 2>/dev/null || ddcutil setvcp 10 + 5" },
-	{ BarModBrightness, SCROLL_DOWN, "brightnessctl -q set 5%- 2>/dev/null || ddcutil setvcp 10 - 5" },
+	/* bri (artix-setup/bin/bri): backlight via brightnessctl, desktop monitors
+	 * via ddcutil (DDC/CI) on every display; fast scrolling is merged */
+	{ BarModBrightness, SCROLL_UP,   "bri +5" },
+	{ BarModBrightness, SCROLL_DOWN, "bri -5" },
 };
 
 /* Graphics tablet pen buttons. Format: { button, state, function, argument }.

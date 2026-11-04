@@ -61,6 +61,7 @@ static long bar_blmax;
 
 static int bar_vol_fd = -1, bar_vol_again;
 static struct wl_event_source *bar_vol_src;
+static void bar_vol_nudge(const char *cmd);
 
 /* Async one-shot commands whose output feeds a module (media, ddcutil). */
 typedef struct {
@@ -1333,6 +1334,8 @@ bar_click(Monitor *m, double cx, double cy, unsigned int button, uint32_t mods)
 				continue;
 			if (u >= m->bar_modx[a->mod] && u < m->bar_modx[a->mod] + m->bar_modw[a->mod]) {
 				Arg sa = { .v = (const char *[]){ "/bin/sh", "-c", a->cmd, NULL } };
+				if (a->mod == BarModVolume)
+					bar_vol_nudge(a->cmd);  /* show the new value at once */
 				barspawn(&sa);
 				return;
 			}
@@ -1609,6 +1612,35 @@ bar_upd_vol(void)
 }
 
 static void bar_vol_start(void);
+
+/* Volume commands like "wpctl set-volume ... 2%+": update the module right
+ * away instead of waiting for wpctl get-volume (the real value follows). */
+static void
+bar_vol_nudge(const char *cmd)
+{
+	const char *pc = strchr(cmd, '%'), *p, *v;
+	double vol, step;
+	int muted;
+
+	if (!pc || (pc[1] != '+' && pc[1] != '-') || bar_vol_fd >= 0
+			|| !(v = strstr(bar_vol_buf, "Volume:")))
+		return;
+	for (p = pc; p > cmd && ((p[-1] >= '0' && p[-1] <= '9') || p[-1] == '.'); p--)
+		;
+	if (p == pc)
+		return;
+	step = strtod(p, NULL) / 100.0;
+	vol = strtod(v + 7, NULL) + (pc[1] == '+' ? step : -step);
+	if (vol < 0)
+		vol = 0;
+	if (vol > 1.5)
+		vol = 1.5;
+	muted = strstr(bar_vol_buf, "MUTED") != NULL;
+	snprintf(bar_vol_buf, sizeof(bar_vol_buf), "Volume: %.2f%s", vol, muted ? " [MUTED]" : "");
+	bar_vol_len = 0;
+	if (bar_upd_vol())
+		bar_draw_all();
+}
 
 static int
 bar_vol_cb(int fd, uint32_t mask, void *data)

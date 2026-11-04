@@ -44,6 +44,9 @@ static const Rule rules[] = {
 #define DEFAULT_WIN_W 1000
 #define DEFAULT_WIN_H 640
 
+/* Gap in pixels around tiled (Super+Q) and maximized (Super+D) windows. */
+#define TILE_GAP 8
+
 /* 1 = plain left drag on a window border resizes it from that edge/corner. */
 #define EDGE_RESIZE 1
 /* Minimum grab zone in screen pixels (the border itself is used if wider). */
