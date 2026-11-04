@@ -160,6 +160,9 @@ typedef struct {
 	int was_vis;
 	struct wlr_box untiled, maxprev;  /* canvas geometry before tiling / maximize */
 	int hasuntiled, ismax;
+	int geoanim;  /* animated move/resize (tiling, maximize) */
+	struct wlr_box ga_from, ga_to;
+	uint64_t ga_start;
 	int untiled_cx, untiled_cy, max_cx, max_cy;  /* canvas offset at that time */
 	struct wlr_scene_tree *open_tree;
 } Client;
@@ -468,6 +471,7 @@ static void centerwindow(const Arg *arg);
 static void togglemaximize(const Arg *arg);
 static void toggletile(const Arg *arg);
 static void tile(Monitor *m);
+static void geoanim_step(Monitor *m);
 static int tiledon(Monitor *m);
 static int tileswap(Client *c, int dir);
 static void bringintoview(Client *c);
@@ -1243,7 +1247,8 @@ commitnotify(struct wl_listener *listener, void *data)
 		return;
 	}
 
-	resize(c, c->geom, (c->isfloating && !c->isfullscreen));
+	if (!c->geoanim)  /* during an animation the client already has its final size */
+		resize(c, c->geom, (c->isfloating && !c->isfullscreen));
 
 	if (c->resize && c->resize <= c->surface.xdg->current.configure_serial)
 		c->resize = 0;
@@ -3534,6 +3539,7 @@ rendermon(struct wl_listener *listener, void *data)
 
 	inertia_step(m);
 	canvas_inertia_step(m);
+	geoanim_step(m);
 
 	zoom_frame(m);
 
@@ -5133,6 +5139,67 @@ restore_canvas_positions(Monitor *m)
  * off. Order = window age (oldest = largest tile); Super+Shift+arrows swaps. */
 
 static void
+geoanim_show(Client *c)
+{
+	struct wlr_box clip;
+	zoom_update_scene_client(c);
+	client_get_clip(c, &clip);
+	wlr_scene_subsurface_tree_set_clip(&c->scene_surface->node, &clip);
+}
+
+/* Move/resize to `to` with an animation: the client gets its final size at
+ * once, the frame (position, size, borders) glides there. */
+static void
+animresize(Client *c, struct wlr_box to)
+{
+	struct wlr_box from = c->geom;
+
+	if (!animatetile || c->opening || !c->mon || !VISIBLEON(c, c->mon)
+			|| !client_surface(c)->mapped) {
+		c->geoanim = 0;
+		resize(c, to, 0);
+		return;
+	}
+	resize(c, to, 0);  /* configure the client for the final size */
+	c->ga_from = from;
+	c->ga_to = c->geom;
+	c->ga_start = lilith_monotonic_ms();
+	c->geoanim = 1;
+	c->geom = from;
+	geoanim_show(c);
+	wlr_output_schedule_frame(c->mon->wlr_output);
+}
+
+void
+geoanim_step(Monitor *m)
+{
+	Client *c;
+	uint64_t now = lilith_monotonic_ms();
+	int active = 0;
+
+	wl_list_for_each(c, &clients, link) {
+		double t, e;
+		if (!c->geoanim || c->mon != m)
+			continue;
+		t = (double)(now - c->ga_start) / (tileduration * 1000.0);
+		if (t >= 1.0 || c == grabc || !VISIBLEON(c, m)) {
+			c->geoanim = 0;
+			c->geom = c->ga_to;
+		} else {
+			e = bezier_ease(tilebezier, t);
+			c->geom.x = c->ga_from.x + (int)lround((c->ga_to.x - c->ga_from.x) * e);
+			c->geom.y = c->ga_from.y + (int)lround((c->ga_to.y - c->ga_from.y) * e);
+			c->geom.width  = MAX(1 + 2 * (int)c->bw, c->ga_from.width  + (int)lround((c->ga_to.width  - c->ga_from.width)  * e));
+			c->geom.height = MAX(1 + 2 * (int)c->bw, c->ga_from.height + (int)lround((c->ga_to.height - c->ga_from.height) * e));
+			active = 1;
+		}
+		geoanim_show(c);
+	}
+	if (active)
+		wlr_output_schedule_frame(m->wlr_output);
+}
+
+static void
 zoom_reset_now(Monitor *m)
 {
 	m->zoom_scale = m->zoom_target = 1.0;
@@ -5202,13 +5269,13 @@ tile(Monitor *m)
 			}
 		}
 		if (!c->hasuntiled) {
-			c->untiled = c->geom;
+			c->untiled = c->geoanim ? c->ga_to : c->geom;
 			c->untiled_cx = m->canvas[tagidx].cx;
 			c->untiled_cy = m->canvas[tagidx].cy;
 			c->hasuntiled = 1;
 		}
-		if (memcmp(&box, &c->geom, sizeof(box)))
-			resize(c, box, 0);
+		if (memcmp(&box, c->geoanim ? &c->ga_to : &c->geom, sizeof(box)))
+			animresize(c, box);
 	}
 	zoom_apply(m);
 	busy = 0;
@@ -5243,7 +5310,7 @@ toggletile(const Arg *arg)
 		g = c->untiled;
 		g.x += m->canvas[tagidx].cx - c->untiled_cx;
 		g.y += m->canvas[tagidx].cy - c->untiled_cy;
-		resize(c, g, 0);
+		animresize(c, g);
 	}
 	arrange(m);
 }
@@ -5264,14 +5331,14 @@ togglemaximize(const Arg *arg)
 		c->ismax = 0;
 		g.x += m->canvas[tagidx].cx - c->max_cx;
 		g.y += m->canvas[tagidx].cy - c->max_cy;
-		resize(c, g, 0);
+		animresize(c, g);
 	} else {
-		c->maxprev = c->geom;
+		c->maxprev = c->geoanim ? c->ga_to : c->geom;
 		c->max_cx = m->canvas[tagidx].cx;
 		c->max_cy = m->canvas[tagidx].cy;
 		c->ismax = 1;
 		zoom_reset_now(m);
-		resize(c, workbox(m), 0);
+		animresize(c, workbox(m));
 		wlr_scene_node_raise_to_top(&c->scene->node);
 	}
 	arrange(m);

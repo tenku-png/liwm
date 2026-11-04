@@ -40,10 +40,15 @@
 #define closealpha     0.0  /* final opacity (0.0 = fully transparent) */
 
 /* --- Window open animation: the window grows and fades in --- */
+/* Tiling (Super+Q) and maximize (Super+D): windows glide to their new place. */
+#define animatetile   1  /* 1 = animate, 0 = jump */
+#define tileduration  0.35  /* length in seconds */
+#define tilebezier    ".34,1.2,.64,1"  /* easing curve, slight overshoot */
+
 #define animateopen   1  /* 1 = enabled, 0 = windows appear instantly */
 #define openduration  0.4  /* animation length */
-#define openbezier    ".28,.67,.28,1.04"  /* easing curve */
-#define openscale     0.8  /* starting size relative to the final size */
+#define openbezier    ".34,1.45,.64,1"  /* easing curve; y > 1 = overshoot ("bubble" pop with a light bounce) */
+#define openscale     0.6  /* starting size relative to the final size */
 #define openalpha     0.0  /* starting opacity (0.0 = fully transparent) */
 
 /* --- Canvas zoom --- */
