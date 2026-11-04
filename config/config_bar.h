@@ -104,8 +104,8 @@ static const char *barbatname    = "";  /* battery under /sys/class/power_supply
 static const char *barblname     = "";
 /* Brightness without a backlight (desktop monitors): DDC/CI via ddcutil.
  * Output (ddcutil --brief) is "VCP 10 C <current> <max>". */
-static const char *barbricmd[]   = { "bri", "get", NULL };  /* artix-setup/bin/bri: cached bus, waits for running changes */
-static const int barbriinterval  = 30000;  /* ms between ddcutil brightness polls (it is slow) */
+static const char *barbricmd[]   = { "bri", "get", NULL };  /* artix-setup/bin/bri: prints the last value it set, never asks the monitor */
+static const int barbriinterval  = 3000;  /* ms between brightness reads (bri get only reads a file) */
 /* Now playing, drawn in the middle of the bar (MPRIS via playerctl). */
 static const int barmedia        = 1;  /* 1 = show BarModMedia centered */
 static const char *barmediacmd[] = { "playerctl", "metadata", "--format", "{{artist}} - {{title}}", NULL };
