@@ -54,11 +54,18 @@ static const Rule rules[] = {
  *           x, y (-1 = automatic position),
  *           resx, resy (custom resolution, only used when mode is -1),
  *           refresh rate in Hz (0 = automatic, only used when mode is -1),
- *           mode (index into the output's mode list; -1 = custom mode),
+ *           mode (0 = automatic: listed mode with resx x resy, or the preferred
+ *                 resolution when 0, at the refresh closest to the rate, or
+ *                 the highest rate when 0; >0 = index into the mode list;
+ *                 -1 = custom mode),
  *           adaptive sync (1 = enabled, 0 = disabled) }
- * The entry below applies to all outputs: scale 1, no rotation, automatic
- * position, first mode of the output, adaptive sync off. */
+ * The last entry applies to all other outputs: scale 1, no rotation,
+ * automatic position, highest refresh rate, adaptive sync off.
+ * DP-2: 3440x1440@180 ultrawide; DP-1: 1920x1080@170 rotated (portrait) on
+ * its right, same layout as configs/swayfx/config in artix-setup. */
 static const MonitorRule monrules[] = {
+	{ "DP-2", 1, WL_OUTPUT_TRANSFORM_NORMAL,    0, 0, 0, 0, 180.0f, 0, 0 },
+	{ "DP-1", 1, WL_OUTPUT_TRANSFORM_270,    3440, 0, 0, 0, 170.0f, 0, 0 },
 	{ NULL, 1, WL_OUTPUT_TRANSFORM_NORMAL, -1, -1, 0, 0, 0.0f, 0, 0 },
 };
 
