@@ -48,16 +48,16 @@ static const int barvertmode     = BarRotCW;  /* text orientation on vertical ba
 
 /* --- Bar frame and fonts --- */
 static const int barborderpx     = 0;  /* width of the bar border (colored by SchemeBorder) */
-static const int barpad          = 0;  /* padding between the border and the bar content */
+static const int barpad          = 6;  /* padding between the border and the bar content */
 
 /* Fonts as fontconfig patterns; the first is primary, the rest are fallbacks (put an icon font here for the ICO_* glyphs). */
 static const char *barfonts[]    = { "monospace:size=10" };
 static const int barvpad         = 5;  /* vertical padding above and below text */
-static const int barlrpad        = 2;  /* horizontal padding around text; 0 = use the font height */
+static const int barlrpad        = 6;  /* horizontal padding around text; 0 = use the font height */
 
 /* --- Modules and separators --- */
 static const int barorder[]      = { BarModTags, BarModSpacer, BarModLayout, BarModVolume, BarModBrightness, BarModCpu, BarModRam, BarModStatus };  /* modules from start to end of the bar */
-static const int barmodulegap    = 2;  /* gap between modules */
+static const int barmodulegap    = 14;  /* gap between modules */
 static const int barsepwidth     = 0;  /* thickness of the separator line between modules; 0 = none (needs barmodulegap > 0) */
 static const int barseppct       = 60;  /* separator line length as a percentage of the bar thickness (max 100) */
 static const char *barseptext    = "";  /* text drawn between modules instead of a line; "" = none */
@@ -65,7 +65,7 @@ static const int barcontentalign = BarAlignStart;  /* alignment of the modules w
 
 /* --- Tag buttons --- */
 static const char *bartags[TAGCOUNT] = { " 1 ", " 2 ", " 3 ", " 4 ", " 5 ", " 6 ", " 7 ", " 8 ", " 9 " };  /* tag labels; one per tag, must have TAGCOUNT entries */
-static const int bartaggap       = 0;  /* gap between tag buttons */
+static const int bartaggap       = 2;  /* gap between tag buttons */
 static const int bartagminw      = 0;  /* minimum width of a tag button */
 static const int bartaginset     = 0;  /* inset of the tag button background inside the bar */
 static const int bartaghideempty = 0;  /* 1 = hide tags that are empty, unselected and not urgent */
@@ -91,7 +91,7 @@ static const char *barhidebezier    = ".28,.67,.28,1.04";  /* hide easing curve 
 static const char *barshowbezier    = ".28,.67,.28,1.04";  /* show easing curve */
 
 /* --- Status modules and data sources --- */
-static const int barstatusallmons = 0;  /* 1 = show status modules on every monitor, 0 = only on the focused one */
+static const int barstatusallmons = 1;  /* 1 = show status modules on every monitor, 0 = only on the focused one */
 #define barstatusstdin  0  /* 1 = read the status text from stdin when it is not a terminal (dwm-style status pipe) */
 static const char *barclockfmt   = "%a %H:%M";  /* strftime() format of the built-in clock (updates every second if it contains seconds, otherwise every minute) */
 

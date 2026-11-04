@@ -64,6 +64,7 @@ static struct wl_event_source *bar_vol_src;
 static void bar_vol_nudge(const char *cmd);
 static void bar_bri_nudge(const char *cmd);
 static int bar_bri_pct = -1;  /* last known DDC/CI brightness */
+#define BAR_NOVAL (-999999)  /* bar_format: print "--" for %v */
 
 /* Async one-shot commands whose output feeds a module (media, ddcutil). */
 typedef struct {
@@ -1463,7 +1464,14 @@ bar_format(char *out, size_t n, const char *fmt, const char *icon, int val,
 		p++;
 		switch (*p) {
 		case 'i': ins = icon ? icon : ""; break;
-		case 'v': snprintf(tmp, sizeof(tmp), "%d", val); ins = tmp; break;
+		case 'v':
+			if (val == BAR_NOVAL)
+				ins = "--";  /* value not known yet */
+			else {
+				snprintf(tmp, sizeof(tmp), "%d", val);
+				ins = tmp;
+			}
+			break;
 		case 's': ins = s ? s : ""; break;
 		case 'u': snprintf(tmp, sizeof(tmp), "%.1f", used); ins = tmp; break;
 		case 't': snprintf(tmp, sizeof(tmp), "%.1f", total); ins = tmp; break;
@@ -1808,8 +1816,13 @@ bar_bricmd_done(const char *out)
 	if (sscanf(out, "VCP %*s C %ld %ld", &cur, &max) != 2 || max <= 0) {
 		/* the bus is often busy while bri changes the value: keep the last
 		 * known number instead of hiding the module */
-		if (bar_bri_pct < 0 && bar_setmod(BarModBrightness, SchemeBrightness, ""))
-			bar_draw_all();
+		/* unknown yet (DDC/CI is only read after the first change): show
+		 * "--" so the module is there to be scrolled */
+		if (bar_bri_pct < 0) {
+			bar_format(t, sizeof(t), barfmt_bri, baricon_bri, BAR_NOVAL, NULL, 0, 0);
+			if (bar_setmod(BarModBrightness, SchemeBrightness, t))
+				bar_draw_all();
+		}
 		return;
 	}
 	pct = (int)((cur * 100 + max / 2) / max);
