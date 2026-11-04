@@ -1519,7 +1519,17 @@ createmon(struct wl_listener *listener, void *data)
 	LISTEN(&wlr_output->events.request_state, &m->request_state, requestmonstate);
 
 	wlr_output_state_set_enabled(&state, 1);
-	wlr_output_commit_state(wlr_output, &state);
+	/* the chosen mode/transform may be refused by the driver: fall back to
+	 * the preferred mode, then to no rotation, instead of a black screen */
+	if (!wlr_output_test_state(wlr_output, &state)) {
+		wlr_log(WLR_ERROR, "%s: mode rejected, falling back to the preferred mode", wlr_output->name);
+		if ((mode = wlr_output_preferred_mode(wlr_output)))
+			wlr_output_state_set_mode(&state, mode);
+		if (!wlr_output_test_state(wlr_output, &state))
+			wlr_output_state_set_transform(&state, WL_OUTPUT_TRANSFORM_NORMAL);
+	}
+	if (!wlr_output_commit_state(wlr_output, &state))
+		wlr_log(WLR_ERROR, "%s: output commit failed", wlr_output->name);
 	wlr_output_state_finish(&state);
 
 	wl_list_insert(&mons, &m->link);
