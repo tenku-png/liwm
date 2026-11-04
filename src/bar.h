@@ -62,6 +62,8 @@ static long bar_blmax;
 static int bar_vol_fd = -1, bar_vol_again;
 static struct wl_event_source *bar_vol_src;
 static void bar_vol_nudge(const char *cmd);
+static void bar_bri_nudge(const char *cmd);
+static int bar_bri_pct = -1;  /* last known DDC/CI brightness */
 
 /* Async one-shot commands whose output feeds a module (media, ddcutil). */
 typedef struct {
@@ -1336,6 +1338,8 @@ bar_click(Monitor *m, double cx, double cy, unsigned int button, uint32_t mods)
 				Arg sa = { .v = (const char *[]){ "/bin/sh", "-c", a->cmd, NULL } };
 				if (a->mod == BarModVolume)
 					bar_vol_nudge(a->cmd);  /* show the new value at once */
+				else if (a->mod == BarModBrightness && !bar_bl_ok)
+					bar_bri_nudge(a->cmd);
 				barspawn(&sa);
 				return;
 			}
@@ -1802,12 +1806,36 @@ bar_bricmd_done(const char *out)
 
 	/* "VCP 10 C 50 100" */
 	if (sscanf(out, "VCP %*s C %ld %ld", &cur, &max) != 2 || max <= 0) {
-		if (bar_setmod(BarModBrightness, SchemeBrightness, ""))
+		/* the bus is often busy while bri changes the value: keep the last
+		 * known number instead of hiding the module */
+		if (bar_bri_pct < 0 && bar_setmod(BarModBrightness, SchemeBrightness, ""))
 			bar_draw_all();
 		return;
 	}
 	pct = (int)((cur * 100 + max / 2) / max);
+	bar_bri_pct = pct;
 	bar_format(t, sizeof(t), barfmt_bri, baricon_bri, pct, NULL, 0, 0);
+	if (bar_setmod(BarModBrightness, SchemeBrightness, t))
+		bar_draw_all();
+}
+
+/* "bri +5" / "bri -5": move the shown value right away (DDC/CI is slow). */
+static void
+bar_bri_nudge(const char *cmd)
+{
+	char t[BAR_TXT];
+	const char *p = cmd;
+
+	while (*p && *p != '+' && *p != '-')
+		p++;
+	if (!*p || bar_bri_pct < 0)
+		return;
+	bar_bri_pct += (int)strtol(p, NULL, 10);
+	if (bar_bri_pct < 0)
+		bar_bri_pct = 0;
+	if (bar_bri_pct > 100)
+		bar_bri_pct = 100;
+	bar_format(t, sizeof(t), barfmt_bri, baricon_bri, bar_bri_pct, NULL, 0, 0);
 	if (bar_setmod(BarModBrightness, SchemeBrightness, t))
 		bar_draw_all();
 }
@@ -1880,7 +1908,9 @@ bar_kick_tick(void *data)
 {
 	if (bar_modused[BarModBrightness] && bar_upd_bri())
 		bar_draw_all();
-	if (bar_modused[BarModBrightness] && !bar_bl_ok)
+	/* DDC/CI: no re-read here, it would fight bri for the bus; the shown
+	 * value was already moved by bar_bri_nudge and is polled later */
+	if (bar_modused[BarModBrightness] && !bar_bl_ok && bar_bri_pct < 0)
 		bar_cmd_start(&bar_bri_cmd);
 	if (bar_modused[BarModVolume])
 		bar_vol_start();

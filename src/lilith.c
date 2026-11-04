@@ -2976,16 +2976,41 @@ mapnotify(struct wl_listener *listener, void *data)
 			/* Open at the client's own size (or the default when it has
 			 * none yet), centered on the focused monitor. */
 			c->isfloating = 1;
+#if SPAWN_AT_CURSOR
+			{
+				Monitor *cm = xytomon(cursor->x, cursor->y);
+				if (cm && cm != c->mon)
+					setmon(c, cm, 0);
+			}
+#endif
 			if (!c->mon)
 				c->mon = selmon;
 			if (c->mon) {
+				Monitor *wm = c->mon;
 				struct wlr_box g = c->geom;
+				double s = wm->zoom_scale > 1e-6 ? wm->zoom_scale : 1.0;
+				/* visible part of the canvas on this monitor, in canvas coords */
+				double x0 = (wm->w.x - wm->zoom_pan_x) / s - wm->pan_off_x;
+				double y0 = (wm->w.y - wm->zoom_pan_y) / s - wm->pan_off_y;
+				double x1 = x0 + wm->w.width / s, y1 = y0 + wm->w.height / s;
+				double px = (x0 + x1) / 2, py = (y0 + y1) / 2;
 				if (g.width < 100 + 2 * (int)c->bw)
 					g.width = DEFAULT_WIN_W + 2 * (int)c->bw;
 				if (g.height < 100 + 2 * (int)c->bw)
 					g.height = DEFAULT_WIN_H + 2 * (int)c->bw;
-				g.x = c->mon->w.x + (c->mon->w.width - g.width) / 2;
-				g.y = c->mon->w.y + (c->mon->w.height - g.height) / 2;
+#if SPAWN_AT_CURSOR
+				if (xytomon(cursor->x, cursor->y) == wm) {
+					px = (cursor->x - wm->zoom_pan_x) / s - wm->pan_off_x;
+					py = (cursor->y - wm->zoom_pan_y) / s - wm->pan_off_y;
+				}
+#endif
+				g.x = (int)lround(px - g.width / 2.0);
+				g.y = (int)lround(py - g.height / 2.0);
+				/* keep it fully on screen */
+				if (g.x + g.width > x1) g.x = (int)(x1 - g.width);
+				if (g.y + g.height > y1) g.y = (int)(y1 - g.height);
+				if (g.x < x0) g.x = (int)ceil(x0);
+				if (g.y < y0) g.y = (int)ceil(y0);
 				c->geom = g;
 			}
 #endif

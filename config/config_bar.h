@@ -103,8 +103,8 @@ static const char *barvolcmd[]   = { "wpctl", "get-volume", "@DEFAULT_AUDIO_SINK
 static const char *barbatname    = "";  /* battery under /sys/class/power_supply (e.g. "BAT0"); "" = first found */
 static const char *barblname     = "";
 /* Brightness without a backlight (desktop monitors): DDC/CI via ddcutil.
- * Output of "--brief" is "VCP 10 C <current> <max>". */
-static const char *barbricmd[]   = { "ddcutil", "getvcp", "10", "--brief", NULL };
+ * Output (ddcutil --brief) is "VCP 10 C <current> <max>". */
+static const char *barbricmd[]   = { "bri", "get", NULL };  /* artix-setup/bin/bri: cached bus, waits for running changes */
 static const int barbriinterval  = 30000;  /* ms between ddcutil brightness polls (it is slow) */
 /* Now playing, drawn in the middle of the bar (MPRIS via playerctl). */
 static const int barmedia        = 1;  /* 1 = show BarModMedia centered */

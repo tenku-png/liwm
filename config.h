@@ -40,6 +40,9 @@ static const Rule rules[] = {
 /* 1 = every new window waits until you drag out its rectangle on the canvas
  * (original lilith behaviour); 0 = windows open centered right away. */
 #define SPAWN_REGION 0
+/* 1 = new windows open centered on the mouse cursor (kept on screen),
+ * 0 = centered on the monitor. */
+#define SPAWN_AT_CURSOR 1
 /* Size used for new windows that do not ask for one (SPAWN_REGION 0). */
 #define DEFAULT_WIN_W 1000
 #define DEFAULT_WIN_H 640
