@@ -53,17 +53,25 @@ static struct wl_event_source *bar_stdin_src, *bar_clock_src, *bar_sys_src, *bar
 static Monitor *bar_hover;
 
 static char bar_modtxt[BarModCount][BAR_TXT];
+static int bar_bl_ok;
+/* DDC/CI brightness is per monitor (Monitor.bri_txt); others are global */
+static const char *
+bar_mtxt(Monitor *m, int type)
+{
+	if (type == BarModBrightness && !bar_bl_ok && m->bri_txt[0])
+		return m->bri_txt;
+	return bar_modtxt[type];
+}
 static int bar_modsch[BarModCount];
 static int bar_modused[BarModCount];
-static int bar_bat_ok, bar_bl_ok, bar_temp_ok;
+static int bar_bat_ok, bar_temp_ok;
 static char bar_batcap[320], bar_batstat[320], bar_blcur[320], bar_temppath[320];
 static long bar_blmax;
 
 static int bar_vol_fd = -1, bar_vol_again;
 static struct wl_event_source *bar_vol_src;
 static void bar_vol_nudge(const char *cmd);
-static void bar_bri_nudge(const char *cmd);
-static int bar_bri_pct = -1;  /* last known DDC/CI brightness */
+static void bar_bri_nudge(Monitor *m, const char *cmd);
 #define BAR_NOVAL (-999999)  /* bar_format: print "--" for %v */
 
 /* Async one-shot commands whose output feeds a module (media, ddcutil). */
@@ -962,10 +970,10 @@ bar_draw(Monitor *m)
 			break;
 		default:
 			if (type < BarModVolume || type >= BarModCount || type == BarModMedia
-					|| !showmods || !bar_modtxt[type][0])
+					|| !showmods || !bar_mtxt(m, type)[0])
 				continue;
-			len = (up ? bar_lines(bar_modtxt[type]) * fh
-					: bar_status_run(NULL, 0, 0, 0, bar_modtxt[type], 0, 0, -1)) + bar_lrpad;
+			len = (up ? bar_lines(bar_mtxt(m, type)) * fh
+					: bar_status_run(NULL, 0, 0, 0, bar_mtxt(m, type), 0, 0, -1)) + bar_lrpad;
 			break;
 		}
 		slots[ns].type = type;
@@ -1047,7 +1055,7 @@ bar_draw(Monitor *m)
 			break;
 		default:
 			bar_draw_text(&k, slots[j].start, slots[j].len,
-					bar_modtxt[slots[j].type], bar_modsch[slots[j].type]);
+					bar_mtxt(m, slots[j].type), bar_modsch[slots[j].type]);
 			if (slots[j].type < 32) {
 				m->bar_modx[slots[j].type] = slots[j].start;
 				m->bar_modw[slots[j].type] = slots[j].len;
@@ -1340,8 +1348,11 @@ bar_click(Monitor *m, double cx, double cy, unsigned int button, uint32_t mods)
 				if (a->mod == BarModVolume)
 					bar_vol_nudge(a->cmd);  /* show the new value at once */
 				else if (a->mod == BarModBrightness && !bar_bl_ok)
-					bar_bri_nudge(a->cmd);
+					bar_bri_nudge(m, a->cmd);
+				/* the command learns which monitor's bar was used */
+				setenv("LILITH_OUTPUT", m->wlr_output->name, 1);
 				barspawn(&sa);
+				unsetenv("LILITH_OUTPUT");
 				return;
 			}
 		}
@@ -1808,49 +1819,53 @@ bar_media_done(const char *out)
 static void
 bar_bricmd_done(const char *out)
 {
-	char t[BAR_TXT];
-	long cur = -1, max = -1;
-	int pct;
+	/* bri get: one "OUTPUT current max" line per monitor it has seen */
+	char t[BAR_TXT], name[64];
+	const char *l;
+	long cur, max;
+	int pct, changed = 0;
+	Monitor *m;
 
-	/* "VCP 10 C 50 100" */
-	if (sscanf(out, "VCP %*s C %ld %ld", &cur, &max) != 2 || max <= 0) {
-		/* the bus is often busy while bri changes the value: keep the last
-		 * known number instead of hiding the module */
-		/* unknown yet (DDC/CI is only read after the first change): show
-		 * "--" so the module is there to be scrolled */
-		if (bar_bri_pct < 0) {
-			bar_format(t, sizeof(t), barfmt_bri, baricon_bri, BAR_NOVAL, NULL, 0, 0);
-			if (bar_setmod(BarModBrightness, SchemeBrightness, t))
-				bar_draw_all();
+	for (l = out; l && *l; l = strchr(l, '\n') ? strchr(l, '\n') + 1 : NULL) {
+		if (sscanf(l, "%63s %ld %ld", name, &cur, &max) != 3 || max <= 0)
+			continue;
+		pct = (int)((cur * 100 + max / 2) / max);
+		wl_list_for_each(m, &mons, link) {
+			if (strcmp(m->wlr_output->name, name))
+				continue;
+			bar_format(t, sizeof(t), barfmt_bri, baricon_bri, pct, NULL, 0, 0);
+			if (strcmp(m->bri_txt, t)) {
+				snprintf(m->bri_txt, sizeof(m->bri_txt), "%s", t);
+				changed = 1;
+			}
+			m->bri_pct = pct;
 		}
-		return;
 	}
-	pct = (int)((cur * 100 + max / 2) / max);
-	bar_bri_pct = pct;
-	bar_format(t, sizeof(t), barfmt_bri, baricon_bri, pct, NULL, 0, 0);
+	/* "--" until a monitor's value is known, so the module can be scrolled */
+	bar_format(t, sizeof(t), barfmt_bri, baricon_bri, BAR_NOVAL, NULL, 0, 0);
 	if (bar_setmod(BarModBrightness, SchemeBrightness, t))
+		changed = 1;
+	if (changed)
 		bar_draw_all();
 }
 
 /* "bri +5" / "bri -5": move the shown value right away (DDC/CI is slow). */
 static void
-bar_bri_nudge(const char *cmd)
+bar_bri_nudge(Monitor *m, const char *cmd)
 {
-	char t[BAR_TXT];
 	const char *p = cmd;
 
 	while (*p && *p != '+' && *p != '-')
 		p++;
-	if (!*p || bar_bri_pct < 0)
+	if (!*p || !m->bri_txt[0])
 		return;
-	bar_bri_pct += (int)strtol(p, NULL, 10);
-	if (bar_bri_pct < 0)
-		bar_bri_pct = 0;
-	if (bar_bri_pct > 100)
-		bar_bri_pct = 100;
-	bar_format(t, sizeof(t), barfmt_bri, baricon_bri, bar_bri_pct, NULL, 0, 0);
-	if (bar_setmod(BarModBrightness, SchemeBrightness, t))
-		bar_draw_all();
+	m->bri_pct += (int)strtol(p, NULL, 10);
+	if (m->bri_pct < 0)
+		m->bri_pct = 0;
+	if (m->bri_pct > 100)
+		m->bri_pct = 100;
+	bar_format(m->bri_txt, sizeof(m->bri_txt), barfmt_bri, baricon_bri, m->bri_pct, NULL, 0, 0);
+	bar_draw_all();
 }
 
 static void
@@ -1921,9 +1936,8 @@ bar_kick_tick(void *data)
 {
 	if (bar_modused[BarModBrightness] && bar_upd_bri())
 		bar_draw_all();
-	/* DDC/CI: no re-read here, it would fight bri for the bus; the shown
-	 * value was already moved by bar_bri_nudge and is polled later */
-	if (bar_modused[BarModBrightness] && !bar_bl_ok && bar_bri_pct < 0)
+	/* DDC/CI: bri get only reads bri's cached values, never the monitors */
+	if (bar_modused[BarModBrightness] && !bar_bl_ok)
 		bar_cmd_start(&bar_bri_cmd);
 	if (bar_modused[BarModVolume])
 		bar_vol_start();

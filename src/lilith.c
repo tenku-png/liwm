@@ -264,6 +264,8 @@ struct Monitor {
 	struct wlr_box wp_box;
 	double wp_k, wp_ox, wp_oy;
 	struct wlr_scene_buffer *bar_scene;
+	char bri_txt[192];  /* DDC/CI brightness text of this monitor (bar) */
+	int bri_pct;
 	struct wlr_box bar_area;
 	int showbar;
 	int bar_vis;
