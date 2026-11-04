@@ -3568,7 +3568,11 @@ pointerfocus(Client *c, struct wlr_surface *surface, double sx, double sy,
 #if FOCUS_DELAY_MS > 0
 		/* Focus only after the pointer rests on the window for a moment,
 		 * so brushing over a neighbour does not steal focus. */
-		if (c == focustop(selmon)) {
+		/* compare with the window that really has keyboard focus:
+		 * focustop(selmon) is only the top of the monitor under the
+		 * pointer, so on the second monitor its top window never got
+		 * focus by hovering */
+		if (client_surface(c) == seat->keyboard_state.focused_surface) {
 			focus_delay_c = NULL;
 		} else {
 			if (!focus_delay_src)
