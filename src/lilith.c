@@ -161,6 +161,7 @@ typedef struct {
 	struct wlr_box untiled, maxprev;  /* canvas geometry before tiling / maximize */
 	int hasuntiled, ismax;
 	int geoanim;  /* animated move/resize (tiling, maximize) */
+	int ga_final;  /* final (smaller) size still to be sent */
 	struct wlr_box ga_from, ga_to;
 	uint64_t ga_start;
 	int untiled_cx, untiled_cy, max_cx, max_cy;  /* canvas offset at that time */
@@ -2149,6 +2150,8 @@ gpureset(struct wl_listener *listener, void *data)
 	wlr_renderer_destroy(old_drw);
 }
 
+static int reload_pipe[2] = { -1, -1 };
+
 void
 handlesig(int signo)
 {
@@ -2156,6 +2159,108 @@ handlesig(int signo)
 		while (waitpid(-1, NULL, WNOHANG) > 0);
 	else if (signo == SIGINT || signo == SIGTERM)
 		quit(NULL);
+	else if (signo == SIGUSR1 && reload_pipe[1] >= 0) {
+		char b = 1;  /* handled in the event loop: reload_cb */
+		if (write(reload_pipe[1], &b, 1) < 0) { /* pipe full: reload already pending */ }
+	}
+}
+
+/* ~/.config/lilith/colors: "key #RRGGBB[AA]" lines (written by matugen). */
+static void
+setcolor(float *f, uint32_t c)
+{
+	f[0] = ((c >> 24) & 0xff) / 255.0f;
+	f[1] = ((c >> 16) & 0xff) / 255.0f;
+	f[2] = ((c >> 8) & 0xff) / 255.0f;
+	f[3] = (c & 0xff) / 255.0f;
+}
+
+static void
+theme_load(void)
+{
+	char path[4096], line[256], key[64], val[64];
+	const char *home = getenv("HOME");
+	FILE *f;
+	size_t i;
+	static const int fgs[] = { SchemeNorm, SchemeBar, SchemeStatus, SchemeVolume,
+		SchemeBrightness, SchemeBattery, SchemeCpu, SchemeRam, SchemeTemp, SchemeLayout };
+	static const int urg[] = { SchemeUrg, SchemeBatLow, SchemeCpuWarn, SchemeRamWarn, SchemeTempWarn };
+
+	if (!home)
+		return;
+	snprintf(path, sizeof(path), "%s/.config/lilith/colors", home);
+	if (!(f = fopen(path, "r")))
+		return;
+	while (fgets(line, sizeof(line), f)) {
+		char *v;
+		uint32_t c;
+		if (sscanf(line, "%63s %63s", key, val) != 2 || key[0] == '#')
+			continue;
+		v = val;
+		if (*v == '#')
+			v++;
+		else if (v[0] == '0' && (v[1] == 'x' || v[1] == 'X'))
+			v += 2;
+		c = (uint32_t)strtoul(v, NULL, 16);
+		if (strlen(v) == 6)
+			c = (c << 8) | 0xff;
+		if (!strcmp(key, "root")) {
+			setcolor(rootcolor, c);
+			setcolor(wallpaper_bgcolor, c);
+		} else if (!strcmp(key, "border_focus")) {
+			setcolor(focused_outer_border_color, c);
+		} else if (!strcmp(key, "border_unfocus")) {
+			setcolor(unfocused_outer_border_color, c);
+		} else if (!strcmp(key, "bar_bg")) {
+			barcolors[SchemeNorm][1] = barcolors[SchemeBar][1] = barcolors[SchemeOcc][1] = c;
+		} else if (!strcmp(key, "bar_fg")) {
+			for (i = 0; i < LENGTH(fgs); i++)
+				barcolors[fgs[i]][0] = c;
+		} else if (!strcmp(key, "sel_bg")) {
+			barcolors[SchemeSel][1] = barcolors[SchemeBorder][1] = c;
+		} else if (!strcmp(key, "sel_fg")) {
+			barcolors[SchemeSel][0] = c;
+		} else if (!strcmp(key, "accent")) {
+			barcolors[SchemeOcc][0] = barcolors[SchemeMedia][0] = barcolors[SchemeBatChg][0] = c;
+		} else if (!strcmp(key, "muted")) {
+			barcolors[SchemeMuted][0] = barcolors[SchemeSep][0] = c;
+		} else if (!strcmp(key, "urgent")) {
+			for (i = 0; i < LENGTH(urg); i++)
+				barcolors[urg[i]][1] = c;
+			setcolor(urgent_outer_border_color, c);
+		}
+	}
+	fclose(f);
+}
+
+/* SIGUSR1 (sent by `wall`): reload colors and wallpaper */
+static int
+reload_cb(int fd, uint32_t mask, void *data)
+{
+	char buf[16];
+	Monitor *m;
+	Client *c, *sel = focustop(selmon);
+
+	while (read(fd, buf, sizeof(buf)) > 0)
+		;
+	theme_load();
+	wallpaper_reload();
+	wlr_scene_rect_set_color(root_bg, rootcolor);
+	wl_list_for_each(c, &clients, link) {
+		if (c->isurgent)
+			continue;
+		if (c == sel)
+			client_set_border_color(c, focused_inner_border_color, focused_outer_border_color);
+		else
+			client_set_border_color(c, unfocused_inner_border_color, unfocused_outer_border_color);
+	}
+	wl_list_for_each(m, &mons, link) {
+		m->wp_valid = 0;
+		zoom_apply(m);
+		wlr_output_schedule_frame(m->wlr_output);
+	}
+	bar_draw_all();
+	return 0;
 }
 
 void
@@ -3795,7 +3900,7 @@ setsel(struct wl_listener *listener, void *data)
 void
 setup(void)
 {
-	int drm_fd, i, sig[] = {SIGCHLD, SIGINT, SIGTERM, SIGPIPE};
+	int drm_fd, i, sig[] = {SIGCHLD, SIGINT, SIGTERM, SIGPIPE, SIGUSR1};
 	struct sigaction sa = {.sa_flags = SA_RESTART, .sa_handler = handlesig};
 	sigemptyset(&sa.sa_mask);
 
@@ -3806,6 +3911,15 @@ setup(void)
 
 	dpy = wl_display_create();
 	event_loop = wl_display_get_event_loop(dpy);
+
+	theme_load();
+	if (pipe(reload_pipe) == 0) {
+		for (i = 0; i < 2; i++) {
+			fcntl(reload_pipe[i], F_SETFD, FD_CLOEXEC);
+			fcntl(reload_pipe[i], F_SETFL, O_NONBLOCK);
+		}
+		wl_event_loop_add_fd(event_loop, reload_pipe[0], WL_EVENT_READABLE, reload_cb, NULL);
+	}
 
 	if (!(backend = wlr_backend_autocreate(event_loop, &session)))
 		die("couldn't create backend");
@@ -5185,9 +5299,19 @@ animresize(Client *c, struct wlr_box to)
 		resize(c, to, 0);
 		return;
 	}
-	resize(c, to, 0);  /* configure the client for the final size */
+	{
+		/* the client gets the larger of the two sizes during the glide, so
+		 * shrinking shows its content clipped by the frame instead of an
+		 * already small window inside a big empty frame; the final size is
+		 * sent when the animation ends */
+		struct wlr_box big = to;
+		big.width  = MAX(to.width, from.width);
+		big.height = MAX(to.height, from.height);
+		resize(c, big, 0);
+		c->ga_final = (big.width != to.width || big.height != to.height);
+	}
 	c->ga_from = from;
-	c->ga_to = c->geom;
+	c->ga_to = to;
 	c->ga_start = lilith_monotonic_ms();
 	c->geoanim = 1;
 	c->geom = from;
@@ -5210,6 +5334,11 @@ geoanim_step(Monitor *m)
 		if (t >= 1.0 || c == grabc || !VISIBLEON(c, m)) {
 			c->geoanim = 0;
 			c->geom = c->ga_to;
+			if (c->ga_final) {
+				c->ga_final = 0;
+				resize(c, c->ga_to, 0);
+				continue;
+			}
 		} else {
 			e = bezier_ease(tilebezier, t);
 			c->geom.x = c->ga_from.x + (int)lround((c->ga_to.x - c->ga_from.x) * e);

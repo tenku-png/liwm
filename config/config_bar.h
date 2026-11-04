@@ -159,7 +159,7 @@ static const char *baricon_layout  = ICO_LAYOUT;  /* keyboard layout */
  * Each scheme is { foreground, background, accent } as 0xRRGGBBAA.
  * The accent is used for tag decorations and occupied indicators;
  * 0 = use the foreground color. A background alpha of 00 is transparent. */
-static const uint32_t barcolors[SchemeCount][3] = {
+static uint32_t barcolors[SchemeCount][3] = {  /* not const: ~/.config/lilith/colors overrides */
 	[SchemeNorm]      = { 0xbbbbbbff, 0x222222ff, 0 },  /* tag: normal */
 	[SchemeSel]       = { 0xeeeeeeff, 0x005577ff, 0 },  /* tag: selected */
 	[SchemeUrg]       = { 0xeeeeeeff, 0xff0000ff, 0 },  /* tag: urgent */

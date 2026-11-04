@@ -141,12 +141,51 @@ wp_load(const char *path)
 	return &b->base;
 }
 
+/* wallpaper_path, or ~/.config/lilith/wallpaper (a symlink set by `wall`) */
+static const char *
+wp_path(void)
+{
+	static char buf[4096];
+	const char *home = getenv("HOME");
+
+	if (wallpaper_path && *wallpaper_path)
+		return wallpaper_path;
+	if (!home)
+		return NULL;
+	snprintf(buf, sizeof(buf), "%s/.config/lilith/wallpaper", home);
+	return access(buf, R_OK) == 0 ? buf : NULL;
+}
+
 static void
 wallpaper_init(void)
 {
-	if (!wallpaper_path || !*wallpaper_path)
+	const char *p = wp_path();
+	if (p)
+		wp_image = wp_load(p);
+}
+
+static void wallpaper_mon_create(Monitor *m);
+static void wallpaper_mon_destroy(Monitor *m);
+
+/* Load the image again (SIGUSR1). Keeps the old one if loading fails. */
+static void
+wallpaper_reload(void)
+{
+	Monitor *m;
+	struct wlr_buffer *img = NULL;
+	const char *p = wp_path();
+
+	if (p && !(img = wp_load(p)))
 		return;
-	wp_image = wp_load(wallpaper_path);
+	wl_list_for_each(m, &mons, link)
+		wallpaper_mon_destroy(m);
+	if (wp_image)
+		wlr_buffer_drop(wp_image);
+	wp_image = img;
+	wl_list_for_each(m, &mons, link) {
+		wallpaper_mon_create(m);
+		m->wp_warned = 0;
+	}
 }
 
 static void

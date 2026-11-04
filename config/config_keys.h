@@ -68,6 +68,7 @@ static const Key keys[] = {
 	{ MODKEY,                    XKB_KEY_r,           spawn,            {.v = wlaunch} },  /* Super+R: launcher */
 	{ MODKEY,                    XKB_KEY_space,       spawn,            {.v = wlaunch} },  /* Super+Space: launcher */
 	{ MODKEY|SHIFT,              XKB_KEY_B,           spawn,            {.v = btop} },  /* Super+Shift+B: btop */
+	{ MODKEY|SHIFT,              XKB_KEY_W,           spawn,            SHCMD("wall") },  /* Super+Shift+W: pick a wallpaper (artix-setup bin/wall, + matugen colors) */
 	{ MODKEY,                    XKB_KEY_v,           spawn,            SHCMD("clip-pick") },  /* Super+V: clipboard history (cliphist + bemenu) */
 	{ MODKEY|SHIFT,              XKB_KEY_V,           spawn,            SHCMD("bemoji -t") },  /* Super+Shift+V: emoji picker */
 	{ MODKEY,                    XKB_KEY_m,           spawn,            SHCMD("mic-monitor") },  /* Super+M: hear yourself on/off */
