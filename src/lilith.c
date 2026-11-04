@@ -1405,6 +1405,31 @@ createlocksurface(struct wl_listener *listener, void *data)
 		client_notify_enter(lock_surface->surface, wlr_seat_get_keyboard(seat));
 }
 
+/* Mode of resolution resx x resy (0 = the preferred mode's resolution) with
+ * the refresh rate closest to rate Hz (0 = the highest available). */
+static struct wlr_output_mode *
+bestmode(struct wlr_output *o, int resx, int resy, float rate)
+{
+	struct wlr_output_mode *pref = wlr_output_preferred_mode(o), *md, *best = NULL;
+	long want = rate > 0 ? (long)(rate * 1000) : 0, d, bestd = 0;
+	if (!pref)
+		return NULL;
+	if (resx <= 0 || resy <= 0) {
+		resx = pref->width;
+		resy = pref->height;
+	}
+	wl_list_for_each(md, &o->modes, link) {
+		if (md->width != resx || md->height != resy)
+			continue;
+		d = want ? labs((long)md->refresh - want) : -(long)md->refresh;
+		if (!best || d < bestd) {
+			best = md;
+			bestd = d;
+		}
+	}
+	return best ? best : pref;
+}
+
 void
 createmon(struct wl_listener *listener, void *data)
 {
@@ -1412,6 +1437,7 @@ createmon(struct wl_listener *listener, void *data)
 	struct wlr_output_mode *mode = wl_container_of(wlr_output->modes.next, mode, link);
 	const MonitorRule *r;
 	size_t i;
+	int moderule = 0;
 	struct wlr_output_state state;
 	Monitor *m;
 
@@ -1435,16 +1461,16 @@ createmon(struct wl_listener *listener, void *data)
 
 			wlr_output_state_set_adaptive_sync_enabled(&state, r->adaptive);
 
-			if(r->mode == -1)
+			if (r->mode == -1)
 				wlr_output_state_set_custom_mode(&state, r->resx, r->resy,
 				(int) (r->rate > 0 ? r->rate * 1000 : 0));
-			else if (!wl_list_empty(&wlr_output->modes)) {
-				for (int j = 0; j < r->mode; j++) {
+			else if (r->mode > 0 && !wl_list_empty(&wlr_output->modes)) {
+				for (int j = 0; j < r->mode; j++)
 					mode = wl_container_of(mode->link.next, mode, link);
-				}
 				wlr_output_state_set_mode(&state, mode);
-			}
-
+			} else if ((mode = bestmode(wlr_output, r->resx, r->resy, r->rate)))
+				wlr_output_state_set_mode(&state, mode);
+			moderule = 1;
 			break;
 		}
 	}
@@ -1491,7 +1517,10 @@ createmon(struct wl_listener *listener, void *data)
 		m->zoom_start_pan_y = 0.0;
 		m->zoom_popups_dirty = 0;
 	}
-	wlr_output_state_set_mode(&state, wlr_output_preferred_mode(wlr_output));
+	/* no rule matched: preferred resolution at its highest refresh rate
+	 * (the EDID "preferred" mode is often 60 Hz on 144+ Hz monitors) */
+	if (!moderule && (mode = bestmode(wlr_output, 0, 0, 0)))
+		wlr_output_state_set_mode(&state, mode);
 
 	LISTEN(&wlr_output->events.frame, &m->frame, rendermon);
 	LISTEN(&wlr_output->events.destroy, &m->destroy, cleanupmon);
